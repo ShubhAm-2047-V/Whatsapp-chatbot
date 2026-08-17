@@ -5,6 +5,7 @@
 // ============================================================
 
 require("dotenv").config();
+const http = require("http");
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -18,6 +19,7 @@ const businessInfo = require("./business-info");
 const { GEMINI_API_KEY, GEMINI_MODEL } = require("./config");
 
 // ---------- CONFIG ----------
+const PORT = process.env.PORT || 3000;
 const IGNORE_GROUPS = true; // set false if you also want the bot to reply in groups
 const FILTER_PERSONAL_MESSAGES = true; // true = skip casual friend/family chats, only answer business queries
 const MAX_HISTORY_TURNS = 12;
@@ -28,6 +30,26 @@ const chatHistory = new Map();
 const messageQueue = new Map(); // chatId -> { timer, messages: [], senderName, msgKey }
 let currentSock = null;
 let isReconnecting = false;
+
+// ------------------------------------------------------------
+//  CLOUD HEALTH CHECK SERVER (For Render / Cloud 24/7 Hosting)
+// ------------------------------------------------------------
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(`
+    <html>
+      <head><title>ShubDeep Labs WhatsApp AI Bot</title></head>
+      <body style="font-family: sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+        <div style="text-align: center; padding: 30px; background: #1e293b; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+          <h1 style="color: #34d399; margin-bottom: 10px;">⚡ ShubDeep Labs AI Agent</h1>
+          <p style="color: #94a3b8; font-size: 16px;">WhatsApp Bot is <strong>LIVE & RUNNING 24/7</strong> in the cloud! 🚀</p>
+        </div>
+      </body>
+    </html>
+  `);
+}).listen(PORT, () => {
+  console.log(`🌐 Cloud Health Check server listening on port ${PORT}`);
+});
 
 // ------------------------------------------------------------
 //  AUTOMATIC LEAD CAPTURE SYSTEM
