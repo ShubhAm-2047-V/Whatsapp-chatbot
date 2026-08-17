@@ -74,16 +74,34 @@ function saveLead(leadData) {
 }
 
 // ------------------------------------------------------------
-//  INTENT CLASSIFIER (Business vs. Personal Message Filter)
+//  INTENT CLASSIFIER (Strict Business vs. Personal Filter)
 // ------------------------------------------------------------
 async function classifyMessageIntent(userMessage, history = []) {
   if (!FILTER_PERSONAL_MESSAGES) {
     return { isBusinessRelated: true, isLead: false, reason: "Filter disabled" };
   }
 
+  const cleanText = userMessage.trim().toLowerCase();
+
+  // If there's NO previous business history and message is just a generic casual 1-word greeting, SKIP!
+  // (Because friends often text "hi", "hello", "kasa ahes", "bhai")
+  if (history.length === 0) {
+    const genericCasualGreetings = [
+      "hi", "hii", "hiii", "hello", "hey", "heyy", "namaste", "namaskar", 
+      "kasa ahes", "kasa kay", "kay challay", "kaha hai", "kya chal raha", "bhai", "bro"
+    ];
+    if (genericCasualGreetings.includes(cleanText)) {
+      return { 
+        isBusinessRelated: false, 
+        isLead: false, 
+        reason: "Generic 1-word greeting without business context (likely a friend/personal contact)" 
+      };
+    }
+  }
+
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
-  const prompt = `You are an AI intent classifier for the WhatsApp account of "Shubdeep Labs".
-Your objective is to determine whether an incoming WhatsApp message is a BUSINESS INQUIRY (services, pricing, websites, chatbots, tech support, general customer greeting, portfolio, founder/owner info, project quotes, name sharing) OR a PERSONAL / CASUAL message between friends, family, or personal acquaintances that the automated bot should SKIP.
+  const prompt = `You are a strict AI intent classifier for the WhatsApp account of "Shubdeep Labs".
+Your objective is to determine whether an incoming WhatsApp message is a GENUINE BUSINESS INQUIRY or a PERSONAL / CASUAL message between friends, family, or personal acquaintances that the automated bot should SKIP.
 
 --- BUSINESS CONTEXT ---
 ${businessInfo}
@@ -94,12 +112,13 @@ ${history.map((h) => `${h.role === "user" ? "Customer" : "Assistant"}: ${h.text}
 
 Incoming Message: "${userMessage}"
 
-RULES:
-1. PERSONAL / CASUAL (isBusinessRelated: false):
-   - Casual chit-chat between friends or family in ANY language (e.g. "kaha hai bhai", "dinner plan", "bhai call kar", "udya college la yenar ka", "kay kartos", "photo bhej", "mom ne kya bola").
-2. BUSINESS / CUSTOMER INQUIRY (isBusinessRelated: true):
-   - Any customer message asking about services, projects, pricing, websites, college projects, founder, or answering the bot's onboarding questions (e.g. sharing their name, project details, deadline).
-   - Greetings from clients ("Hello", "Hi", "Hey", "Namaste", "Mala website pahije").
+STRICT CLASSIFICATION RULES:
+1. PERSONAL / CASUAL (isBusinessRelated: false) -> SKIP:
+   - Standalone casual greetings with no business inquiry ("hi", "hello", "kasa ahes", "kaha hai bhai", "call kar", "bhai dinner?", "udya yenar ka").
+   - Friend/family chats in any language (English, Hindi, Marathi, etc.).
+2. BUSINESS / CUSTOMER INQUIRY (isBusinessRelated: true) -> REPLY:
+   - Inquiries mentioning software, website, app, AI bot, pricing, college/diploma/btech project, quote, portfolio, founder/owner inquiry, or business meeting.
+   - Ongoing conversation where customer is providing their name, requirements, or deadline in response to the bot.
 
 Respond ONLY with a valid JSON object matching this schema:
 {
@@ -143,7 +162,7 @@ Respond ONLY with a valid JSON object matching this schema:
     }
   }
 
-  return { isBusinessRelated: true, isLead: false, reason: "Fallback default" };
+  return { isBusinessRelated: false, isLead: false, reason: "Fallback default safe skip" };
 }
 
 // ------------------------------------------------------------
