@@ -234,9 +234,47 @@ async function extractProjectRequirement(history = [], currentText = "") {
 }
 
 // ------------------------------------------------------------
+//  INTELLIGENT CHAT CONVERSATION SUMMARIZER
+// ------------------------------------------------------------
+async function generateChatSummary(history = [], currentText = "") {
+  if (history.length === 0) return `• Initial message: "${currentText}"`;
+
+  const conversationLines = history.slice(-10).map((h) => `${h.role === "user" ? "Client" : "Assistant"}: ${h.text}`);
+  if (currentText) conversationLines.push(`Client: ${currentText}`);
+
+  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
+  if (apiKey) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [{ text: `Summarize this sales conversation in 2 to 3 concise bullet points with key client requirements, requested features, and agreed next steps:\n${conversationLines.join("\n")}\n\nFormat with bullet points (•). Keep it very short and crisp for a WhatsApp notification.` }]
+          }],
+          generationConfig: { maxOutputTokens: 150, temperature: 0.2 }
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (summary) return summary;
+      }
+    } catch (e) {}
+  }
+
+  // Fallback if API fails
+  const lastUserMessages = history.filter((h) => h.role === "user").slice(-3).map((h) => `• "${h.text}"`);
+  if (currentText) lastUserMessages.push(`• Latest: "${currentText}"`);
+  return lastUserMessages.join("\n");
+}
+
+// ------------------------------------------------------------
 //  INSTANT OWNER NOTIFICATION DISPATCHER (WhatsApp Alert)
 // ------------------------------------------------------------
-async function notifyOwner(clientName, chatId, projectRequirement, latestMsg, priority = "HOT") {
+async function notifyOwner(clientName, chatId, projectRequirement, chatSummary, latestMsg, priority = "HOT") {
   if (!currentSock) return;
   try {
     const cleanPhone = chatId.split("@")[0];
@@ -246,6 +284,10 @@ async function notifyOwner(clientName, chatId, projectRequirement, latestMsg, pr
 👤 *Client:* ${clientName || "New Client"}
 📱 *WhatsApp:* +${cleanPhone}
 💡 *Project Requirement:* ${projectRequirement}
+
+📋 *Full Chat Summary:*
+${chatSummary}
+
 💬 *Latest Message:* "${latestMsg}"
 ⏰ *Time:* ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: '2-digit', minute: '2-digit' })}
 
@@ -584,7 +626,8 @@ async function processBatchedMessages(chatId, sock) {
       // Dispatch real-time WhatsApp alert directly to Shubham Vernekar
       if (chatId !== OWNER_JID) {
         const projectRequirement = await extractProjectRequirement(history, combinedText);
-        notifyOwner(senderName, chatId, projectRequirement, combinedText, classification.priority || "HOT");
+        const chatSummary = await generateChatSummary(history, combinedText);
+        notifyOwner(senderName, chatId, projectRequirement, chatSummary, combinedText, classification.priority || "HOT");
       }
     }
 
