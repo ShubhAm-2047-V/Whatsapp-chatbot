@@ -34,13 +34,11 @@ if not exist "node_modules\" (
     echo.
 )
 
-:: 3. Start the bot
+:: 3. Start the bot with auto-restart loop
+:loop
+echo [INFO] Starting WhatsApp Bot...
 node index.js
-
-if errorlevel 1 (
-    echo.
-    echo [ERROR] Bot process stopped unexpectedly.
-)
-
 echo.
-pause
+echo [WARNING] Bot process ended. Auto-recovering in 3 seconds... (Press Ctrl+C to stop)
+timeout /t 3 /nobreak >nul
+goto loop
