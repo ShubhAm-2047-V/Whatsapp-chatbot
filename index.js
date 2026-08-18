@@ -1006,12 +1006,7 @@ async function startBot() {
 
     for (const msg of messages) {
       try {
-        if (!msg.message || msg.key.fromMe) continue;
-
-        const chatId = msg.key.remoteJid;
-        const senderName = msg.pushName || chatId.split("@")[0];
-
-        if (IGNORE_GROUPS && chatId.endsWith("@g.us")) continue;
+        if (!msg.message) continue;
 
         // Extract text content
         const text =
@@ -1020,6 +1015,16 @@ async function startBot() {
           msg.message.imageMessage?.caption ||
           msg.message.videoMessage?.caption ||
           "";
+
+        const isCommand = text.trim().startsWith("#");
+
+        // Skip our own outgoing messages UNLESS it is an admin command (#stats, #pause, #resume, #help)
+        if (msg.key.fromMe && !isCommand) continue;
+
+        const chatId = msg.key.remoteJid;
+        const senderName = msg.pushName || (msg.key.fromMe ? "Shubham (Admin)" : chatId.split("@")[0]);
+
+        if (IGNORE_GROUPS && chatId.endsWith("@g.us")) continue;
 
         // Extract multimodal media (Images / Audio voice notes)
         const mediaItems = [];
