@@ -182,6 +182,10 @@ async function executeGeminiRequest(payload) {
 function isOwnerChatId(chatId, chat = null) {
   if (!chatId) return true;
   if (chatId === OWNER_JID) return true;
+  const myJid = currentSock?.user?.id;
+  const myLid = currentSock?.user?.lid;
+  if (myJid && chatId.startsWith(myJid.split(":")[0])) return true;
+  if (myLid && chatId === myLid) return true;
   const cleanPhone = chatId.split("@")[0].replace(/\D/g, "");
   if (cleanPhone === "919028833275" || cleanPhone === "9028833275") return true;
   if (chat && chat.name && /Shubham \(Owner\)/i.test(chat.name)) return true;
@@ -284,7 +288,7 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
 }
 
 // ------------------------------------------------------------
-//  CLIENT-SPECIFIC QUOTE REVISION & BREAKDOWN ENGINE
+//  CLIENT-SPECIFIC QUOTE, RULES & ACTION DISPATCH ENGINE
 // ------------------------------------------------------------
 async function handleClientQuoteOverride(userMessage, history = [], sock = null) {
   const allData = loadAllChatHistory();
@@ -300,32 +304,29 @@ async function handleClientQuoteOverride(userMessage, history = [], sock = null)
   if (knownClients.length === 0) return null;
 
   const prompt = `You are an AI Executive Sales Assistant for Shubham Vernekar (Founder of ShubDeep Labs).
-Shubham is sending a command to customize, revise, or SEND a quotation to a client based on recent discussions.
+Shubham is sending a command in his WhatsApp console to send something to a client or customize terms/rules/quotation.
 
-Recent Owner Discussion Context:
+Recent Discussion Context with Owner:
 ${history.slice(-6).map((h) => `${h.role === "user" ? "Shubham" : "AI Assistant"}: ${h.text}`).join("\n")}
 
-Known Clients in CRM:
+Known Active Clients in CRM:
 ${JSON.stringify(knownClients, null, 2)}
 
-Owner's Message: "${userMessage}"
+Owner's Command: "${userMessage}"
 
-Determine if Shubham is asking to quote, revise price, or dispatch a message to a client (e.g. "quote Deepa 13000", "Get her the quotation of 13000 now", "send it to her", "Deepa la 13000 quote kar", "send her on whatsapp"). Note: If he says "her" or "him", check recent context to match the client!
+Determine if Shubham is instructing you to:
+1. SEND A QUOTATION / REVISED PRICE (e.g. "quote Deepa 13000", "Send quotation of 13000 to her")
+2. SEND RULES, TERMS & CONDITIONS / ONBOARDING (e.g. "Then send the rules and conditions to her", "Give her the terms and conditions", "Send rules to Deepa")
+3. SEND CUSTOM MESSAGE / FOLLOW-UP TO CLIENT
 
 Respond ONLY with valid JSON:
 {
-  "isQuoteOverride": boolean,
+  "isActionMatched": boolean,
   "shouldAutoDispatch": boolean,
+  "actionTitle": "Short title (e.g. Project Terms & Onboarding Guidelines / Revised Quotation)",
   "matchedChatId": "exact chatId string from known clients",
   "clientName": "Client Name",
-  "revisedPrice": "e.g. ₹13,000",
-  "projectRequirement": "Short summary of what client wanted (e.g. Gold E-Commerce Website with Live Rates & Cart)",
-  "scopeBreakdown": [
-    "Feature 1 with delivery note",
-    "Feature 2",
-    "Feature 3"
-  ],
-  "proposedMessage": "Warm, natural WhatsApp message for the client in their language explaining that Shubham has specially reviewed their requirements and approved this revised quote of ₹X for them."
+  "proposedMessage": "Warm, highly professional WhatsApp message for the client in their language explaining the terms (50% advance booking ₹6,500, 2-3 weeks delivery, 100% full source code ownership, 30 days support) or quotation."
 }`;
 
   try {
@@ -341,49 +342,48 @@ Respond ONLY with valid JSON:
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     let parsed = cleanAndParseJson(raw);
 
-    // Safety fallback: if JSON parse failed but user explicitly asked to send to deepa
+    // Fallback: match keywords like "rules", "conditions", "terms", "deepa"
     if (!parsed || !parsed.matchedChatId) {
-      const matched = knownClients.find(c => new RegExp(c.name.split(" ")[0], "i").test(userMessage) || /deepa/i.test(userMessage));
-      if (matched && /send|quotation|quote/i.test(userMessage)) {
+      const isRulesIntent = /rules|conditions|terms|onboarding/i.test(userMessage);
+      const isQuoteIntent = /quotation|quote|\d{4,5}/i.test(userMessage);
+      const matched = knownClients.find(c => /deepa/i.test(c.name)) || knownClients[0];
+
+      if (matched && isRulesIntent) {
         parsed = {
-          isQuoteOverride: true,
-          shouldAutoDispatch: /now|send|go/i.test(userMessage),
+          isActionMatched: true,
+          shouldAutoDispatch: true,
+          actionTitle: "Project Terms & Conditions",
           matchedChatId: matched.chatId,
           clientName: matched.name,
-          revisedPrice: "₹13,000",
-          projectRequirement: "Gold E-Commerce Store with Live Rates, Cart & Payment Gateway",
-          scopeBreakdown: [
-            "Real-time live daily gold rates",
-            "Shopping cart & customer account checkout",
-            "Secure online payment gateway integration"
-          ],
+          proposedMessage: `Namaste ${matched.name.split(" ")[0]}! 👋✨ Here are the official project terms & onboarding guidelines for your Gold & Jewellery E-Commerce platform: 💎📋\n\n1️⃣ **Approved Investment:** Fixed at ₹13,000 for complete custom store with live daily rates, cart & payment gateway.\n2️⃣ **Booking Advance:** 50% advance payment (₹6,500) to lock your development slot & initiate UI design.\n3️⃣ **Delivery Timeline:** 2 to 3 weeks with live demo staging preview.\n4️⃣ **Source Code Ownership:** 100% full unencumbered code ownership & deployment upon final handover.\n5️⃣ **Post-Launch Support:** 30 days of free technical maintenance & training.\n\nShubham will share the official booking invoice & UPI payment QR link with you shortly! 🚀🤝`
+        };
+      } else if (matched && isQuoteIntent) {
+        parsed = {
+          isActionMatched: true,
+          shouldAutoDispatch: true,
+          actionTitle: "Revised Project Quotation",
+          matchedChatId: matched.chatId,
+          clientName: matched.name,
           proposedMessage: `Namaste ${matched.name.split(" ")[0]}! 👋✨ Following up on our discussion for your Gold & Jewellery E-Commerce website, our founder Shubham Vernekar has specially approved a revised quote of *₹13,000* for your complete platform with live rates, cart, and payment gateway! 🚀🤝 Would you like us to start the kickoff?`
         };
       }
     }
 
-    if (parsed && parsed.isQuoteOverride && parsed.matchedChatId) {
+    if (parsed && (parsed.isActionMatched || parsed.isQuoteOverride) && parsed.matchedChatId) {
       lastActiveClientChatId = parsed.matchedChatId;
-
-      // Save revised quote to client's persistent memory
-      if (allData[parsed.matchedChatId] && parsed.revisedPrice) {
-        allData[parsed.matchedChatId].approvedQuote = parsed.revisedPrice;
-        saveAllChatHistory(allData);
-      }
 
       // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
       if (parsed.shouldAutoDispatch && sock && parsed.proposedMessage) {
         await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
         appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
-        console.log(`🚀 [AUTO DISPATCHED QUOTE] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
+        console.log(`🚀 [AUTO DISPATCHED TO CLIENT] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
 
         return (
-`🚀 *[QUOTATION OF ${parsed.revisedPrice || 'APPROVED RATE'} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* ✨
+`🚀 *[${(parsed.actionTitle || 'MESSAGE').toUpperCase()} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* ✨
 
 👤 *Client:* ${parsed.clientName} (+${parsed.matchedChatId.split("@")[0]})
-💡 *Project:* ${parsed.projectRequirement}
 
-💬 *Message Sent to Client:*
+💬 *Message Dispatched to Client:*
 "${parsed.proposedMessage}"
 
 _The client has received this message in their WhatsApp chat!_ 🤝`
@@ -395,31 +395,25 @@ _The client has received this message in their WhatsApp chat!_ 🤝`
         targetChatId: parsed.matchedChatId,
         clientName: parsed.clientName,
         messageText: parsed.proposedMessage,
-        revisedPrice: parsed.revisedPrice,
+        revisedPrice: parsed.revisedPrice || "Custom",
       });
 
-      const bullets = (parsed.scopeBreakdown || []).map((b) => `• ${b}`).join("\n");
       const cleanPhone = parsed.matchedChatId.split("@")[0];
 
       return (
-`🎯 *[REVISED QUOTATION PREPARED FOR ${parsed.clientName.toUpperCase()}]* 💼
+`🎯 *[${(parsed.actionTitle || 'PROPOSED MESSAGE').toUpperCase()} FOR ${parsed.clientName.toUpperCase()}]* 💼
 
 👤 *Client:* ${parsed.clientName} (+${cleanPhone})
-💡 *Project:* ${parsed.projectRequirement}
-💰 *Approved Revised Quote:* *${parsed.revisedPrice || "Custom Quote"}*
-
-📋 *Scope & Features Included:*
-${bullets || "• Complete custom web application implementation & source code"}
 
 💬 *Proposed Message for ${parsed.clientName}:*
 "${parsed.proposedMessage}"
 
 ━━━━━━━━━━━━━━━━━━━━
-👉 _To send this revised quote directly to ${parsed.clientName} on WhatsApp, simply reply:_ *Send to ${parsed.clientName.split(" ")[0]}* (or *Yes*)`
+👉 _To send this directly to ${parsed.clientName} on WhatsApp, simply reply:_ *Send to ${parsed.clientName.split(" ")[0]}* (or *Yes*)`
       );
     }
   } catch (e) {
-    console.warn("Could not process quote override:", e.message);
+    console.warn("Could not process client action:", e.message);
   }
 
   return null;
@@ -1437,13 +1431,18 @@ async function startBot() {
           "";
 
         const chatId = msg.key.remoteJid;
-        const myPhone = (sock.user?.id ? sock.user.id.split(":")[0].replace(/\D/g, "") : "919028833275");
-        const remotePhone = chatId.split("@")[0].replace(/\D/g, "");
-        const isSelfChat = (chatId === OWNER_JID || remotePhone === myPhone || remotePhone === "9028833275") && (msg.key.fromMe || chatId === OWNER_JID);
+        const fromMe = !!msg.key.fromMe;
+
+        // Check if this chat belongs to an existing client in CRM
+        const allData = loadAllChatHistory();
+        const isClientChat = !!(allData[chatId] && !isOwnerChatId(chatId, allData[chatId]));
+
+        // If fromMe is true and it's NOT inside a known client chat, it is Shubham in Self-Chat!
+        const isSelfChat = isOwnerChatId(chatId) || (fromMe && !isClientChat);
         const isCommand = text.trim().startsWith("#");
 
-        // Skip our own outgoing messages in customer chats, but ALLOW ALL messages in Owner Self-Chat or starting with #
-        if (msg.key.fromMe && !isSelfChat && !isCommand) continue;
+        // Skip our own manual outgoing typing inside client chats, but ALLOW ALL messages in Owner Self-Chat
+        if (fromMe && isClientChat && !isCommand) continue;
 
         const senderName = isSelfChat ? "Shubham (Owner)" : (msg.pushName || chatId.split("@")[0]);
 
