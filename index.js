@@ -183,6 +183,16 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
   return null;
 }
 
+// Helper to distinguish owner self-chats from real client chats
+function isOwnerChatId(chatId, chat = null) {
+  if (!chatId) return true;
+  if (chatId === OWNER_JID) return true;
+  const cleanPhone = chatId.split("@")[0].replace(/\D/g, "");
+  if (cleanPhone === "919028833275" || cleanPhone === "9028833275") return true;
+  if (chat && chat.name && /Shubham \(Owner\)/i.test(chat.name)) return true;
+  return false;
+}
+
 // In-memory state for pending owner-approved quotes waiting for dispatch
 const pendingQuoteDispatches = new Map(); // OWNER_JID -> { targetChatId, clientName, messageText, revisedPrice }
 let lastActiveClientChatId = null;
@@ -196,7 +206,7 @@ async function handleClientQuoteOverride(userMessage, history = [], sock = null)
 
   const allData = loadAllChatHistory();
   const knownClients = Object.entries(allData)
-    .filter(([cid]) => cid !== OWNER_JID && !cid.endsWith("@lid"))
+    .filter(([cid, c]) => !isOwnerChatId(cid, c))
     .map(([cid, c]) => ({
       chatId: cid,
       name: c.name || "Client",
@@ -728,7 +738,7 @@ async function askGemini(userMessage, history = [], options = {}) {
   if (isOwner) {
     const allData = loadAllChatHistory();
     const crmSummary = Object.entries(allData)
-      .filter(([cid]) => cid !== OWNER_JID && !cid.endsWith("@lid"))
+      .filter(([cid, c]) => !isOwnerChatId(cid, c))
       .map(([cid, c]) => {
         const phone = cid.split("@")[0];
         const quoteNote = c.approvedQuote ? ` [Owner Approved Quote: ${c.approvedQuote}]` : "";
