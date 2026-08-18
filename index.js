@@ -8,6 +8,7 @@ require("dotenv").config();
 const {
   default: makeWASocket,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   DisconnectReason,
   downloadMediaMessage,
 } = require("@whiskeysockets/baileys");
@@ -862,8 +863,11 @@ async function startBot() {
   };
 
   const sock = makeWASocket({
-    auth: authState,
-    logger: P({ level: "silent" }),
+    auth: {
+      creds: authState.creds,
+      keys: makeCacheableSignalKeyStore(authState.keys, P({ level: "fatal" })),
+    },
+    logger: P({ level: "fatal" }),
     printQRInTerminal: false,
     syncFullHistory: false,
     msgRetryCounterCache,
