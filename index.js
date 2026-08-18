@@ -145,43 +145,53 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
   "isConfigUpdate": false
 }`;
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 600,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
+  for (const model of GEMINI_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 600,
+            responseMimeType: "application/json",
+          },
+        }),
+      });
 
-    if (!res.ok) return null;
+      if (!res.ok) continue;
 
-    const data = await res.json();
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const parsed = JSON.parse(raw);
+      const data = await res.json();
+      const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      const parsed = JSON.parse(raw);
 
-    if (parsed.isConfigUpdate && parsed.ruleDetails) {
-      const customRulesFile = path.join(KNOWLEDGE_DIR, "custom_rules.md");
-      const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-      const newEntry = `\n### [CUSTOM RULE: ${parsed.category || "GENERAL"}] ${parsed.ruleTitle || "Rule"} (Added: ${timestamp})\n${parsed.ruleDetails}\n`;
+      if (parsed.isConfigUpdate && parsed.ruleDetails) {
+        const customRulesFile = path.join(KNOWLEDGE_DIR, "custom_rules.md");
+        const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+        const newEntry = `\n### [CUSTOM RULE: ${parsed.category || "GENERAL"}] ${parsed.ruleTitle || "Rule"} (Added: ${timestamp})\n${parsed.ruleDetails}\n`;
 
-      fs.appendFileSync(customRulesFile, newEntry, "utf-8");
-      console.log(`🧠 [LIVE CONFIG SAVED VIA WHATSAPP]: "${parsed.ruleTitle}"`);
+        fs.appendFileSync(customRulesFile, newEntry, "utf-8");
+        console.log(`🧠 [LIVE CONFIG SAVED VIA WHATSAPP]: "${parsed.ruleTitle}"`);
 
-      return parsed.confirmationMessage || `✅ *Configuration Updated Successfully!*\n\n• *Category:* ${parsed.category}\n• *Update:* ${parsed.ruleTitle}\n• *Details:* ${parsed.ruleDetails}\n\n_I have permanently saved this to my brain and will apply it to all customer chats!_ 🚀✨`;
-    }
-  } catch (e) {
-    console.warn("Could not parse owner configuration:", e.message);
+        return parsed.confirmationMessage || `✅ *Configuration Updated Successfully!*\n\n• *Category:* ${parsed.category}\n• *Update:* ${parsed.ruleTitle}\n• *Details:* ${parsed.ruleDetails}\n\n_I have permanently saved this to my brain and will apply it to all customer chats!_ 🚀✨`;
+      }
+      return null;
+    } catch (e) {}
   }
 
   return null;
 }
+
+const GEMINI_MODELS = [
+  GEMINI_MODEL,
+  "gemini-3.5-flash",
+  "gemini-flash-latest",
+  "gemini-2.5-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemini-2.5-flash"
+];
 
 // Helper to distinguish owner self-chats from real client chats
 function isOwnerChatId(chatId, chat = null) {
@@ -245,43 +255,44 @@ Respond ONLY with valid JSON:
   "proposedMessage": "Warm, natural WhatsApp message for the client in their language explaining that Shubham has specially reviewed their requirements and approved this revised quote of ₹X for them."
 }`;
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 800,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
+  for (const model of GEMINI_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 800,
+            responseMimeType: "application/json",
+          },
+        }),
+      });
 
-    if (!res.ok) return null;
+      if (!res.ok) continue;
 
-    const data = await res.json();
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const parsed = JSON.parse(raw);
+      const data = await res.json();
+      const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      const parsed = JSON.parse(raw);
 
-    if (parsed.isQuoteOverride && parsed.matchedChatId) {
-      lastActiveClientChatId = parsed.matchedChatId;
+      if (parsed.isQuoteOverride && parsed.matchedChatId) {
+        lastActiveClientChatId = parsed.matchedChatId;
 
-      // Save revised quote to client's persistent memory
-      if (allData[parsed.matchedChatId] && parsed.revisedPrice) {
-        allData[parsed.matchedChatId].approvedQuote = parsed.revisedPrice;
-        saveAllChatHistory(allData);
-      }
+        // Save revised quote to client's persistent memory
+        if (allData[parsed.matchedChatId] && parsed.revisedPrice) {
+          allData[parsed.matchedChatId].approvedQuote = parsed.revisedPrice;
+          saveAllChatHistory(allData);
+        }
 
-      // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
-      if (parsed.shouldAutoDispatch && sock && parsed.proposedMessage) {
-        await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
-        appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
-        console.log(`🚀 [AUTO DISPATCHED QUOTE] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
+        // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
+        if (parsed.shouldAutoDispatch && sock && parsed.proposedMessage) {
+          await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
+          appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
+          console.log(`🚀 [AUTO DISPATCHED QUOTE] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
 
-        return (
+          return (
 `🚀 *[QUOTATION OF ${parsed.revisedPrice || 'APPROVED RATE'} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* ✨
 
 👤 *Client:* ${parsed.clientName} (+${parsed.matchedChatId.split("@")[0]})
@@ -291,21 +302,21 @@ Respond ONLY with valid JSON:
 "${parsed.proposedMessage}"
 
 _The client has received this message in their WhatsApp chat!_ 🤝`
-        );
-      }
+          );
+        }
 
-      // Otherwise store pending dispatch and show proposed message
-      pendingQuoteDispatches.set(OWNER_JID, {
-        targetChatId: parsed.matchedChatId,
-        clientName: parsed.clientName,
-        messageText: parsed.proposedMessage,
-        revisedPrice: parsed.revisedPrice,
-      });
+        // Otherwise store pending dispatch and show proposed message
+        pendingQuoteDispatches.set(OWNER_JID, {
+          targetChatId: parsed.matchedChatId,
+          clientName: parsed.clientName,
+          messageText: parsed.proposedMessage,
+          revisedPrice: parsed.revisedPrice,
+        });
 
-      const bullets = (parsed.scopeBreakdown || []).map((b) => `• ${b}`).join("\n");
-      const cleanPhone = parsed.matchedChatId.split("@")[0];
+        const bullets = (parsed.scopeBreakdown || []).map((b) => `• ${b}`).join("\n");
+        const cleanPhone = parsed.matchedChatId.split("@")[0];
 
-      return (
+        return (
 `🎯 *[REVISED QUOTATION PREPARED FOR ${parsed.clientName.toUpperCase()}]* 💼
 
 👤 *Client:* ${parsed.clientName} (+${cleanPhone})
@@ -320,10 +331,10 @@ ${bullets || "• Complete custom web application implementation & source code"}
 
 ━━━━━━━━━━━━━━━━━━━━
 👉 _To send this revised quote directly to ${parsed.clientName} on WhatsApp, simply reply:_ *Send to ${parsed.clientName.split(" ")[0]}* (or *Yes*)`
-      );
-    }
-  } catch (e) {
-    console.warn("Could not process quote override:", e.message);
+        );
+      }
+      return null;
+    } catch (e) {}
   }
 
   return null;
@@ -468,25 +479,27 @@ async function extractProjectRequirement(history = [], currentText = "") {
   // Ask Gemini for a crisp 1-line requirement title
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
   if (apiKey) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            role: "user",
-            parts: [{ text: `Based on these customer inquiries: "${allUserText}", summarize what project the customer wants to build in 4 to 8 words (e.g. "Gold E-Commerce Website with Live Rates"). Return ONLY the short title.` }]
-          }],
-          generationConfig: { maxOutputTokens: 30, temperature: 0.1 }
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (summary) return summary.replace(/["\n]/g, "");
-      }
-    } catch (e) {}
+    for (const model of GEMINI_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [{ text: `Based on these customer inquiries: "${allUserText}", summarize what project the customer wants to build in 4 to 8 words (e.g. "Gold E-Commerce Website with Live Rates"). Return ONLY the short title.` }]
+            }],
+            generationConfig: { maxOutputTokens: 30, temperature: 0.1 }
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (summary) return summary.replace(/["\n]/g, "");
+        }
+      } catch (e) {}
+    }
   }
 
   return currentText;
@@ -503,35 +516,37 @@ async function generateChatSummary(history = [], currentText = "") {
 
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
   if (apiKey) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{
-              text: "You are an executive CRM assistant. Output ONLY 2 to 3 bullet points starting immediately with '•'. Do NOT write any introduction or preamble like 'Here is a summary'. Directly start with '•'."
-            }]
-          },
-          contents: [{
-            role: "user",
-            parts: [{ text: `Summarize this client sales chat into 2-3 crisp bullet points covering client needs, key features requested, and next action:\n\n${conversationLines.join("\n")}` }]
-          }],
-          generationConfig: { maxOutputTokens: 500, temperature: 0.2 }
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        let summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-        // Strip any filler text before the first bullet
-        const bulletIndex = summary.indexOf("•");
-        if (bulletIndex !== -1) {
-          summary = summary.substring(bulletIndex).trim();
+    for (const model of GEMINI_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{
+                text: "You are an executive CRM assistant. Output ONLY 2 to 3 bullet points starting immediately with '•'. Do NOT write any introduction or preamble like 'Here is a summary'. Directly start with '•'."
+              }]
+            },
+            contents: [{
+              role: "user",
+              parts: [{ text: `Summarize this client sales chat into 2-3 crisp bullet points covering client needs, key features requested, and next action:\n\n${conversationLines.join("\n")}` }]
+            }],
+            generationConfig: { maxOutputTokens: 500, temperature: 0.2 }
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          let summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+          // Strip any filler text before the first bullet
+          const bulletIndex = summary.indexOf("•");
+          if (bulletIndex !== -1) {
+            summary = summary.substring(bulletIndex).trim();
+          }
+          if (summary.length > 10) return summary;
         }
-        if (summary.length > 10) return summary;
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
   }
 
   // Fallback if API fails
@@ -679,9 +694,7 @@ Respond ONLY with valid JSON:
   "reason": "Short 1-sentence explanation"
 }`;
 
-  const modelsToTry = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
-
-  for (const model of modelsToTry) {
+  for (const model of GEMINI_MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
@@ -882,9 +895,7 @@ ${knowledge}
 
   contents.push({ role: "user", parts: currentParts });
 
-  const modelsToTry = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
-
-  for (const model of modelsToTry) {
+  for (const model of GEMINI_MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
