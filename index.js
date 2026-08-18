@@ -114,6 +114,75 @@ function loadDynamicKnowledge() {
 }
 
 // ------------------------------------------------------------
+//  LIVE WHATSAPP SELF-CONFIGURATION ENGINE (Train/Config via WhatsApp)
+// ------------------------------------------------------------
+async function handleOwnerConfiguration(userMessage) {
+  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
+  if (!apiKey) return null;
+
+  const prompt = `You are the Live Configuration & Memory Engine for Shubham Vernekar's WhatsApp AI Agent.
+Shubham is sending a direct message from his WhatsApp. Determine if he is instructing you to:
+1. UPDATE PRICING (e.g. "Change basic website price to 5k", "Ecommerce starts at 15000 now")
+2. ADD OR UPDATE SERVICES (e.g. "We now do Flutter mobile apps", "Add SEO audit service")
+3. ADD BUSINESS RULES / INSTRUCTIONS (e.g. "Always offer 10% discount if they are students", "Reply in polite Marathi", "Do not mention discounts on Gold stores")
+4. UPDATE CONTACT / COMPANY INFO (e.g. "New office address is Pune", "Office hours are 10am to 7pm")
+5. ADD CUSTOM POLICIES / NOTES (e.g. "Remember we don't work on Sundays", "Delivery time is now 10 days")
+
+Owner's Message: "${userMessage}"
+
+If the message is a CONFIGURATION or INSTRUCTION update, respond ONLY with valid JSON:
+{
+  "isConfigUpdate": true,
+  "category": "PRICING | SERVICE | RULE | CONTACT | POLICY | GENERAL",
+  "ruleTitle": "Short title of the update",
+  "ruleDetails": "Precise instruction for the AI bot to permanently remember and apply across all customer interactions",
+  "confirmationMessage": "Warm, enthusiastic confirmation message to Shubham explaining what was updated in the bot's live brain! ✨"
+}
+
+If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hello", "What is the status?"), respond with:
+{
+  "isConfigUpdate": false
+}`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 600,
+          responseMimeType: "application/json",
+        },
+      }),
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const parsed = JSON.parse(raw);
+
+    if (parsed.isConfigUpdate && parsed.ruleDetails) {
+      const customRulesFile = path.join(KNOWLEDGE_DIR, "custom_rules.md");
+      const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+      const newEntry = `\n### [CUSTOM RULE: ${parsed.category || "GENERAL"}] ${parsed.ruleTitle || "Rule"} (Added: ${timestamp})\n${parsed.ruleDetails}\n`;
+
+      fs.appendFileSync(customRulesFile, newEntry, "utf-8");
+      console.log(`🧠 [LIVE CONFIG SAVED VIA WHATSAPP]: "${parsed.ruleTitle}"`);
+
+      return parsed.confirmationMessage || `✅ *Configuration Updated Successfully!*\n\n• *Category:* ${parsed.category}\n• *Update:* ${parsed.ruleTitle}\n• *Details:* ${parsed.ruleDetails}\n\n_I have permanently saved this to my brain and will apply it to all customer chats!_ 🚀✨`;
+    }
+  } catch (e) {
+    console.warn("Could not parse owner configuration:", e.message);
+  }
+
+  return null;
+}
+
+// ------------------------------------------------------------
 //  PERSISTENT CHAT HISTORY STORAGE (Remembers 1-3+ Months)
 // ------------------------------------------------------------
 function loadAllChatHistory() {
@@ -751,22 +820,27 @@ async function processBatchedMessages(chatId, sock) {
       }
     }
 
-    // 1. If Owner is asking ANY question in Self Chat -> Executive AI Co-Pilot answers with full CRM context!
+    // 1. If Owner is in Self Chat -> Executive AI Co-Pilot or Live Self-Configurator!
     if (isSelfChat) {
       console.log(`👑 [OWNER EXECUTIVE QUERY] "${combinedText}"`);
       try {
         await activeSock.sendPresenceUpdate("composing", targetJid);
       } catch (e) {}
 
-      let ownerReply = "";
-      try {
-        ownerReply = await askGemini(combinedText, history, {
-          isOwner: true,
-          clientName: "Shubham Vernekar",
-          mediaBuffers: mediaItems,
-        });
-      } catch (err) {
-        ownerReply = `⚠️ Executive AI Error: ${err.message}`;
+      // First check if owner is teaching or customizing the bot
+      const configReply = await handleOwnerConfiguration(combinedText);
+      let ownerReply = configReply;
+
+      if (!ownerReply) {
+        try {
+          ownerReply = await askGemini(combinedText, history, {
+            isOwner: true,
+            clientName: "Shubham Vernekar",
+            mediaBuffers: mediaItems,
+          });
+        } catch (err) {
+          ownerReply = `⚠️ Executive AI Error: ${err.message}`;
+        }
       }
 
       await activeSock.sendMessage(targetJid, { text: ownerReply });
