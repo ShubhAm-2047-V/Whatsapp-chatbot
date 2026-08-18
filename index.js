@@ -378,6 +378,62 @@ async function processBatchedMessages(chatId, sock) {
 }
 
 // ------------------------------------------------------------
+//  SESSION PERSISTENCE (Environment Variable Backup)
+// ------------------------------------------------------------
+function restoreSessionFromEnv() {
+  const sessionData = process.env.SESSION_DATA;
+  if (!sessionData) return;
+
+  const authDir = path.join(__dirname, "auth_session");
+  if (!fs.existsSync(authDir)) {
+    fs.mkdirSync(authDir, { recursive: true });
+  }
+
+  try {
+    const decoded = Buffer.from(sessionData, "base64").toString("utf-8");
+    if (decoded.startsWith("{")) {
+      const parsed = JSON.parse(decoded);
+      if (parsed["creds.json"]) {
+        for (const [filename, content] of Object.entries(parsed)) {
+          fs.writeFileSync(path.join(authDir, filename), typeof content === "string" ? content : JSON.stringify(content), "utf-8");
+        }
+        console.log("🔑 Restored WhatsApp session files from SESSION_DATA environment variable!");
+        return;
+      } else if (parsed.noiseKey || parsed.account) {
+        fs.writeFileSync(path.join(authDir, "creds.json"), decoded, "utf-8");
+        console.log("🔑 Restored WhatsApp creds.json from SESSION_DATA environment variable!");
+        return;
+      }
+    }
+    fs.writeFileSync(path.join(authDir, "creds.json"), decoded, "utf-8");
+    console.log("🔑 Restored WhatsApp creds.json from SESSION_DATA!");
+  } catch (e) {
+    console.warn("⚠️ Could not restore SESSION_DATA:", e.message);
+  }
+}
+
+function exportSessionString() {
+  const authDir = path.join(__dirname, "auth_session");
+  if (!fs.existsSync(authDir)) return null;
+
+  try {
+    const credsPath = path.join(authDir, "creds.json");
+    if (!fs.existsSync(credsPath)) return null;
+
+    const data = {};
+    const files = fs.readdirSync(authDir);
+    for (const f of files) {
+      if (f === "creds.json" || f.startsWith("app-state-sync-key")) {
+        data[f] = fs.readFileSync(path.join(authDir, f), "utf-8");
+      }
+    }
+    return Buffer.from(JSON.stringify(data)).toString("base64");
+  } catch (e) {
+    return null;
+  }
+}
+
+// ------------------------------------------------------------
 //  START BOT
 // ------------------------------------------------------------
 async function startBot() {
@@ -391,6 +447,9 @@ async function startBot() {
     } catch (e) {}
     currentSock = null;
   }
+
+  // Restore session from environment variable if available
+  restoreSessionFromEnv();
 
   console.log("⏳ Initializing WhatsApp session...");
   const { state: authState, saveCreds } = await useMultiFileAuthState("./auth_session");
@@ -434,6 +493,13 @@ async function startBot() {
       console.log("\n===================================================");
       console.log("✅ Connected to WhatsApp! ShubDeep Labs AI Agent is LIVE.");
       console.log("===================================================\n");
+
+      const sessionStr = exportSessionString();
+      if (sessionStr && !process.env.SESSION_DATA) {
+        console.log("💡 [SESSION BACKUP] To permanently prevent having to scan QR codes across redeploys, add this to your Render / Cloud Environment Variables:\n");
+        console.log(`SESSION_DATA=${sessionStr}\n`);
+        console.log("===================================================\n");
+      }
     }
   });
 
