@@ -115,12 +115,87 @@ function loadDynamicKnowledge() {
 }
 
 // ------------------------------------------------------------
+//  MULTI-KEY ROTATING & MULTI-MODEL FALLBACK ENGINE
+// ------------------------------------------------------------
+const GEMINI_MODELS = [
+  GEMINI_MODEL,
+  "gemini-3.5-flash",
+  "gemini-flash-latest",
+  "gemini-2.5-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemini-2.5-flash",
+];
+
+function getAllApiKeys() {
+  const envRaw = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
+  const fromEnv = envRaw
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k && !k.startsWith("PASTE_"));
+
+  const combined = Array.from(new Set([...fromEnv, ...(GEMINI_API_KEYS || []), GEMINI_API_KEY].filter(Boolean)));
+  return combined;
+}
+
+let activeKeyIndex = 0;
+
+async function executeGeminiRequest(payload) {
+  const keys = getAllApiKeys();
+  if (keys.length === 0) {
+    throw new Error("No Gemini API keys configured!");
+  }
+
+  const totalKeys = keys.length;
+  for (let attempt = 0; attempt < totalKeys; attempt++) {
+    const keyIdx = (activeKeyIndex + attempt) % totalKeys;
+    const key = keys[keyIdx];
+
+    for (const model of GEMINI_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.status === 429) {
+          console.warn(`⚠️ [API KEY ROTATION] Key #${keyIdx + 1} quota limit reached (429). Rotating to next API key...`);
+          activeKeyIndex = (keyIdx + 1) % totalKeys;
+          break; // Break model loop, try next key immediately
+        }
+
+        if (!res.ok) continue;
+
+        const data = await res.json();
+        return data;
+      } catch (err) {
+        console.warn(`[Gemini API] Key #${keyIdx + 1} (${model}) error:`, err.message);
+      }
+    }
+  }
+
+  throw new Error("All Gemini API keys & fallback models are currently unavailable.");
+}
+
+// Helper to distinguish owner self-chats from real client chats
+function isOwnerChatId(chatId, chat = null) {
+  if (!chatId) return true;
+  if (chatId === OWNER_JID) return true;
+  const cleanPhone = chatId.split("@")[0].replace(/\D/g, "");
+  if (cleanPhone === "919028833275" || cleanPhone === "9028833275") return true;
+  if (chat && chat.name && /Shubham \(Owner\)/i.test(chat.name)) return true;
+  return false;
+}
+
+// In-memory state for pending owner-approved quotes waiting for dispatch
+const pendingQuoteDispatches = new Map(); // OWNER_JID -> { targetChatId, clientName, messageText, revisedPrice }
+let lastActiveClientChatId = null;
+
+// ------------------------------------------------------------
 //  LIVE WHATSAPP SELF-CONFIGURATION ENGINE (Train/Config via WhatsApp)
 // ------------------------------------------------------------
 async function handleOwnerConfiguration(userMessage) {
-  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
-  if (!apiKey) return null;
-
   const prompt = `You are the Live Configuration & Memory Engine for Shubham Vernekar's WhatsApp AI Agent.
 Shubham is sending a direct message from his WhatsApp. Determine if he is instructing you to:
 1. UPDATE PRICING (e.g. "Change basic website price to 5k", "Ecommerce starts at 15000 now")
@@ -145,75 +220,40 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
   "isConfigUpdate": false
 }`;
 
-  for (const model of GEMINI_MODELS) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 600,
-            responseMimeType: "application/json",
-          },
-        }),
-      });
+  try {
+    const data = await executeGeminiRequest({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 600,
+        responseMimeType: "application/json",
+      },
+    });
 
-      if (!res.ok) continue;
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const parsed = JSON.parse(raw);
 
-      const data = await res.json();
-      const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-      const parsed = JSON.parse(raw);
+    if (parsed.isConfigUpdate && parsed.ruleDetails) {
+      const customRulesFile = path.join(KNOWLEDGE_DIR, "custom_rules.md");
+      const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+      const newEntry = `\n### [CUSTOM RULE: ${parsed.category || "GENERAL"}] ${parsed.ruleTitle || "Rule"} (Added: ${timestamp})\n${parsed.ruleDetails}\n`;
 
-      if (parsed.isConfigUpdate && parsed.ruleDetails) {
-        const customRulesFile = path.join(KNOWLEDGE_DIR, "custom_rules.md");
-        const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-        const newEntry = `\n### [CUSTOM RULE: ${parsed.category || "GENERAL"}] ${parsed.ruleTitle || "Rule"} (Added: ${timestamp})\n${parsed.ruleDetails}\n`;
+      fs.appendFileSync(customRulesFile, newEntry, "utf-8");
+      console.log(`🧠 [LIVE CONFIG SAVED VIA WHATSAPP]: "${parsed.ruleTitle}"`);
 
-        fs.appendFileSync(customRulesFile, newEntry, "utf-8");
-        console.log(`🧠 [LIVE CONFIG SAVED VIA WHATSAPP]: "${parsed.ruleTitle}"`);
-
-        return parsed.confirmationMessage || `✅ *Configuration Updated Successfully!*\n\n• *Category:* ${parsed.category}\n• *Update:* ${parsed.ruleTitle}\n• *Details:* ${parsed.ruleDetails}\n\n_I have permanently saved this to my brain and will apply it to all customer chats!_ 🚀✨`;
-      }
-      return null;
-    } catch (e) {}
+      return parsed.confirmationMessage || `✅ *Configuration Updated Successfully!*\n\n• *Category:* ${parsed.category}\n• *Update:* ${parsed.ruleTitle}\n• *Details:* ${parsed.ruleDetails}\n\n_I have permanently saved this to my brain and will apply it to all customer chats!_ 🚀✨`;
+    }
+  } catch (e) {
+    console.warn("Could not parse owner configuration:", e.message);
   }
 
   return null;
 }
 
-const GEMINI_MODELS = [
-  GEMINI_MODEL,
-  "gemini-3.5-flash",
-  "gemini-flash-latest",
-  "gemini-2.5-flash-lite",
-  "gemini-flash-lite-latest",
-  "gemini-2.5-flash"
-];
-
-// Helper to distinguish owner self-chats from real client chats
-function isOwnerChatId(chatId, chat = null) {
-  if (!chatId) return true;
-  if (chatId === OWNER_JID) return true;
-  const cleanPhone = chatId.split("@")[0].replace(/\D/g, "");
-  if (cleanPhone === "919028833275" || cleanPhone === "9028833275") return true;
-  if (chat && chat.name && /Shubham \(Owner\)/i.test(chat.name)) return true;
-  return false;
-}
-
-// In-memory state for pending owner-approved quotes waiting for dispatch
-const pendingQuoteDispatches = new Map(); // OWNER_JID -> { targetChatId, clientName, messageText, revisedPrice }
-let lastActiveClientChatId = null;
-
 // ------------------------------------------------------------
 //  CLIENT-SPECIFIC QUOTE REVISION & BREAKDOWN ENGINE
 // ------------------------------------------------------------
 async function handleClientQuoteOverride(userMessage, history = [], sock = null) {
-  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
-  if (!apiKey) return null;
-
   const allData = loadAllChatHistory();
   const knownClients = Object.entries(allData)
     .filter(([cid, c]) => !isOwnerChatId(cid, c))
@@ -255,44 +295,35 @@ Respond ONLY with valid JSON:
   "proposedMessage": "Warm, natural WhatsApp message for the client in their language explaining that Shubham has specially reviewed their requirements and approved this revised quote of ₹X for them."
 }`;
 
-  for (const model of GEMINI_MODELS) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 800,
-            responseMimeType: "application/json",
-          },
-        }),
-      });
+  try {
+    const data = await executeGeminiRequest({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 800,
+        responseMimeType: "application/json",
+      },
+    });
 
-      if (!res.ok) continue;
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const parsed = JSON.parse(raw);
 
-      const data = await res.json();
-      const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-      const parsed = JSON.parse(raw);
+    if (parsed.isQuoteOverride && parsed.matchedChatId) {
+      lastActiveClientChatId = parsed.matchedChatId;
 
-      if (parsed.isQuoteOverride && parsed.matchedChatId) {
-        lastActiveClientChatId = parsed.matchedChatId;
+      // Save revised quote to client's persistent memory
+      if (allData[parsed.matchedChatId] && parsed.revisedPrice) {
+        allData[parsed.matchedChatId].approvedQuote = parsed.revisedPrice;
+        saveAllChatHistory(allData);
+      }
 
-        // Save revised quote to client's persistent memory
-        if (allData[parsed.matchedChatId] && parsed.revisedPrice) {
-          allData[parsed.matchedChatId].approvedQuote = parsed.revisedPrice;
-          saveAllChatHistory(allData);
-        }
+      // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
+      if (parsed.shouldAutoDispatch && sock && parsed.proposedMessage) {
+        await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
+        appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
+        console.log(`🚀 [AUTO DISPATCHED QUOTE] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
 
-        // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
-        if (parsed.shouldAutoDispatch && sock && parsed.proposedMessage) {
-          await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
-          appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
-          console.log(`🚀 [AUTO DISPATCHED QUOTE] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
-
-          return (
+        return (
 `🚀 *[QUOTATION OF ${parsed.revisedPrice || 'APPROVED RATE'} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* ✨
 
 👤 *Client:* ${parsed.clientName} (+${parsed.matchedChatId.split("@")[0]})
@@ -302,21 +333,21 @@ Respond ONLY with valid JSON:
 "${parsed.proposedMessage}"
 
 _The client has received this message in their WhatsApp chat!_ 🤝`
-          );
-        }
+        );
+      }
 
-        // Otherwise store pending dispatch and show proposed message
-        pendingQuoteDispatches.set(OWNER_JID, {
-          targetChatId: parsed.matchedChatId,
-          clientName: parsed.clientName,
-          messageText: parsed.proposedMessage,
-          revisedPrice: parsed.revisedPrice,
-        });
+      // Otherwise store pending dispatch and show proposed message
+      pendingQuoteDispatches.set(OWNER_JID, {
+        targetChatId: parsed.matchedChatId,
+        clientName: parsed.clientName,
+        messageText: parsed.proposedMessage,
+        revisedPrice: parsed.revisedPrice,
+      });
 
-        const bullets = (parsed.scopeBreakdown || []).map((b) => `• ${b}`).join("\n");
-        const cleanPhone = parsed.matchedChatId.split("@")[0];
+      const bullets = (parsed.scopeBreakdown || []).map((b) => `• ${b}`).join("\n");
+      const cleanPhone = parsed.matchedChatId.split("@")[0];
 
-        return (
+      return (
 `🎯 *[REVISED QUOTATION PREPARED FOR ${parsed.clientName.toUpperCase()}]* 💼
 
 👤 *Client:* ${parsed.clientName} (+${cleanPhone})
@@ -331,10 +362,10 @@ ${bullets || "• Complete custom web application implementation & source code"}
 
 ━━━━━━━━━━━━━━━━━━━━
 👉 _To send this revised quote directly to ${parsed.clientName} on WhatsApp, simply reply:_ *Send to ${parsed.clientName.split(" ")[0]}* (or *Yes*)`
-        );
-      }
-      return null;
-    } catch (e) {}
+      );
+    }
+  } catch (e) {
+    console.warn("Could not process quote override:", e.message);
   }
 
   return null;
@@ -477,30 +508,17 @@ async function extractProjectRequirement(history = [], currentText = "") {
   }
 
   // Ask Gemini for a crisp 1-line requirement title
-  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
-  if (apiKey) {
-    for (const model of GEMINI_MODELS) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              role: "user",
-              parts: [{ text: `Based on these customer inquiries: "${allUserText}", summarize what project the customer wants to build in 4 to 8 words (e.g. "Gold E-Commerce Website with Live Rates"). Return ONLY the short title.` }]
-            }],
-            generationConfig: { maxOutputTokens: 30, temperature: 0.1 }
-          })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (summary) return summary.replace(/["\n]/g, "");
-        }
-      } catch (e) {}
-    }
-  }
+  try {
+    const data = await executeGeminiRequest({
+      contents: [{
+        role: "user",
+        parts: [{ text: `Based on these customer inquiries: "${allUserText}", summarize what project the customer wants to build in 4 to 8 words (e.g. "Gold E-Commerce Website with Live Rates"). Return ONLY the short title.` }]
+      }],
+      generationConfig: { maxOutputTokens: 30, temperature: 0.1 }
+    });
+    const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (summary) return summary.replace(/["\n]/g, "");
+  } catch (e) {}
 
   return currentText;
 }
@@ -514,40 +532,27 @@ async function generateChatSummary(history = [], currentText = "") {
   const conversationLines = history.slice(-12).map((h) => `${h.role === "user" ? "Client" : "Assistant"}: ${h.text}`);
   if (currentText) conversationLines.push(`Client: ${currentText}`);
 
-  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
-  if (apiKey) {
-    for (const model of GEMINI_MODELS) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{
-                text: "You are an executive CRM assistant. Output ONLY 2 to 3 bullet points starting immediately with '•'. Do NOT write any introduction or preamble like 'Here is a summary'. Directly start with '•'."
-              }]
-            },
-            contents: [{
-              role: "user",
-              parts: [{ text: `Summarize this client sales chat into 2-3 crisp bullet points covering client needs, key features requested, and next action:\n\n${conversationLines.join("\n")}` }]
-            }],
-            generationConfig: { maxOutputTokens: 500, temperature: 0.2 }
-          })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          let summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-          // Strip any filler text before the first bullet
-          const bulletIndex = summary.indexOf("•");
-          if (bulletIndex !== -1) {
-            summary = summary.substring(bulletIndex).trim();
-          }
-          if (summary.length > 10) return summary;
-        }
-      } catch (e) {}
+  try {
+    const data = await executeGeminiRequest({
+      systemInstruction: {
+        parts: [{
+          text: "You are an executive CRM assistant. Output ONLY 2 to 3 bullet points starting immediately with '•'. Do NOT write any introduction or preamble like 'Here is a summary'. Directly start with '•'."
+        }]
+      },
+      contents: [{
+        role: "user",
+        parts: [{ text: `Summarize this client sales chat into 2-3 crisp bullet points covering client needs, key features requested, and next action:\n\n${conversationLines.join("\n")}` }]
+      }],
+      generationConfig: { maxOutputTokens: 500, temperature: 0.2 }
+    });
+    let summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    // Strip any filler text before the first bullet
+    const bulletIndex = summary.indexOf("•");
+    if (bulletIndex !== -1) {
+      summary = summary.substring(bulletIndex).trim();
     }
-  }
+    if (summary.length > 10) return summary;
+  } catch (e) {}
 
   // Fallback if API fails
   const lastUserMessages = history.filter((h) => h.role === "user").slice(-3).map((h) => `• ${h.text}`);
@@ -694,37 +699,27 @@ Respond ONLY with valid JSON:
   "reason": "Short 1-sentence explanation"
 }`;
 
-  for (const model of GEMINI_MODELS) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 500,
-            responseMimeType: "application/json",
-          },
-        }),
-      });
+  try {
+    const data = await executeGeminiRequest({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 500,
+        responseMimeType: "application/json",
+      },
+    });
 
-      if (!res.ok) continue;
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const cleanJson = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleanJson);
 
-      const data = await res.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-      const cleanJson = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-      const parsed = JSON.parse(cleanJson);
-
-      return {
-        isBusinessRelated: !!parsed.isBusinessRelated,
-        isLead: !!parsed.isLead,
-        priority: parsed.priority || "WARM",
-        reason: parsed.reason || "Classified by Gemini",
-      };
-    } catch (e) {}
-  }
+    return {
+      isBusinessRelated: !!parsed.isBusinessRelated,
+      isLead: !!parsed.isLead,
+      priority: parsed.priority || "WARM",
+      reason: parsed.reason || "Classified by Gemini",
+    };
+  } catch (e) {}
 
   return {
     isBusinessRelated: history.length > 0,
@@ -895,31 +890,18 @@ ${knowledge}
 
   contents.push({ role: "user", parts: currentParts });
 
-  for (const model of GEMINI_MODELS) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemInstruction }] },
-          contents,
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 1024,
-          },
-        }),
-      });
+  const payload = {
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents,
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 1024,
+    },
+  };
 
-      if (!res.ok) continue;
-
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      if (text.trim()) return text.trim();
-    } catch (err) {
-      console.warn(`[Gemini API] Failed with ${model}, trying fallback:`, err.message);
-    }
-  }
+  const data = await executeGeminiRequest(payload);
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  if (text.trim()) return text.trim();
 
   throw new Error("Unable to get response from Gemini API");
 }
