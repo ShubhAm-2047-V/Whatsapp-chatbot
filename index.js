@@ -240,7 +240,7 @@ async function extractProjectRequirement(history = [], currentText = "") {
 async function generateChatSummary(history = [], currentText = "") {
   if (history.length === 0) return `• Initial message: "${currentText}"`;
 
-  const conversationLines = history.slice(-10).map((h) => `${h.role === "user" ? "Client" : "Assistant"}: ${h.text}`);
+  const conversationLines = history.slice(-12).map((h) => `${h.role === "user" ? "Client" : "Assistant"}: ${h.text}`);
   if (currentText) conversationLines.push(`Client: ${currentText}`);
 
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
@@ -251,24 +251,34 @@ async function generateChatSummary(history = [], currentText = "") {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          systemInstruction: {
+            parts: [{
+              text: "You are an executive CRM assistant. Output ONLY 2 to 3 bullet points starting immediately with '•'. Do NOT write any introduction or preamble like 'Here is a summary'. Directly start with '•'."
+            }]
+          },
           contents: [{
             role: "user",
-            parts: [{ text: `Summarize this sales conversation in 2 to 3 concise bullet points with key client requirements, requested features, and agreed next steps:\n${conversationLines.join("\n")}\n\nFormat with bullet points (•). Keep it very short and crisp for a WhatsApp notification.` }]
+            parts: [{ text: `Summarize this client sales chat into 2-3 crisp bullet points covering client needs, key features requested, and next action:\n\n${conversationLines.join("\n")}` }]
           }],
-          generationConfig: { maxOutputTokens: 150, temperature: 0.2 }
+          generationConfig: { maxOutputTokens: 500, temperature: 0.2 }
         })
       });
       if (res.ok) {
         const data = await res.json();
-        const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (summary) return summary;
+        let summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+        // Strip any filler text before the first bullet
+        const bulletIndex = summary.indexOf("•");
+        if (bulletIndex !== -1) {
+          summary = summary.substring(bulletIndex).trim();
+        }
+        if (summary.length > 10) return summary;
       }
     } catch (e) {}
   }
 
   // Fallback if API fails
-  const lastUserMessages = history.filter((h) => h.role === "user").slice(-3).map((h) => `• "${h.text}"`);
-  if (currentText) lastUserMessages.push(`• Latest: "${currentText}"`);
+  const lastUserMessages = history.filter((h) => h.role === "user").slice(-3).map((h) => `• ${h.text}`);
+  if (currentText) lastUserMessages.push(`• Latest: ${currentText}`);
   return lastUserMessages.join("\n");
 }
 
