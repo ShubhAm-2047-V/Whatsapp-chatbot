@@ -514,29 +514,57 @@ async function askGemini(userMessage, history = [], options = {}) {
     throw new Error("Gemini API key is not configured! Please add your key in .env or config.js");
   }
 
-  const { timeGap, clientName, mediaBuffers = [] } = options;
+  const { timeGap, clientName, mediaBuffers = [], isOwner = false } = options;
   const knowledge = loadDynamicKnowledge();
 
-  let timeGapInstruction = "";
-  if (timeGap) {
-    timeGapInstruction = `
+  let systemInstruction = "";
+
+  if (isOwner) {
+    const allData = loadAllChatHistory();
+    const crmSummary = Object.entries(allData)
+      .filter(([cid]) => cid !== OWNER_JID && !cid.endsWith("@lid"))
+      .map(([cid, c]) => {
+        const lastMsg = c.messages?.slice(-1)[0]?.text || "No message";
+        const phone = cid.split("@")[0];
+        return `• Name: ${c.name || "Client"} | Phone/Chat: +${phone} | Priority: ${c.priority || "WARM"} | Business Lead: ${c.isBusinessChat ? "YES" : "NO"} | Last Interaction: ${new Date(c.lastInteraction).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} | Latest Message: "${lastMsg}"`;
+      })
+      .join("\n");
+
+    systemInstruction = `You are the private AI Executive Co-Pilot for Shubham Vernekar, the Founder & Owner of ShubDeep Labs.
+You have real-time live access to the entire CRM database, active chats, leads, and company operations.
+
+LIVE ACTIVE CRM CLIENT CHATS:
+${crmSummary || "No active client conversations yet."}
+
+KNOWLEDGE BASE REFERENCE:
+${knowledge}
+
+YOUR DIRECTIVES:
+- Shubham is speaking with you directly in his private executive console.
+- Answer all his questions completely, accurately, and politely (e.g. list active client names, summarize specific client chats, list leads, calculate statistics, draft proposals, or answer questions).
+- Format lists with clean formatting, bullet points (•), bold names, and emojis!
+- Respond in the language he speaks (English, Marathi, Hindi).`;
+  } else {
+    let timeGapInstruction = "";
+    if (timeGap) {
+      timeGapInstruction = `
 \n⚠️ TIME-GAP AWARENESS:
 - The customer is replying after **${timeGap}**!
 - Warmly greet them like an old friend: "Hey ${clientName || 'there'}! 👋 So great to hear from you again! Hope you have been doing great! ✨ Where have you been? 😃"
 - Recall what you were discussing previously and invite them to pick up right where you left off!
 `;
-  }
+    }
 
-  let nightInstruction = "";
-  if (isOutsideBusinessHours() && history.length <= 2) {
-    nightInstruction = `
+    let nightInstruction = "";
+    if (isOutsideBusinessHours() && history.length <= 2) {
+      nightInstruction = `
 \n🌙 AFTER-HOURS LOGIC:
 - It is currently outside our regular 9:00 AM – 8:00 PM IST office hours.
 - Mention: "Our standard office hours are 9 AM – 8 PM, but I can connect you with Shubham right away if it's urgent! ✨ Would you prefer him to call/message you right now, or should we talk tomorrow morning at 10 AM? 📞😊"
 `;
-  }
+    }
 
-  const systemInstruction = `You are the friendly, tech-savvy AI Client Coordinator for "ShubDeep Labs" on WhatsApp.
+    systemInstruction = `You are the friendly, tech-savvy AI Client Coordinator for "ShubDeep Labs" on WhatsApp.
 
 Your goal is to talk like a warm, engaging human team member and guide the customer STEP-BY-STEP through a natural interactive conversation. 
 ${timeGapInstruction}
@@ -577,6 +605,7 @@ CRITICAL CONVERSATIONAL RULES:
 --- KNOWLEDGE BASE REFERENCE ---
 ${knowledge}
 --- END KNOWLEDGE BASE ---`;
+  }
 
   const contents = [];
   for (const h of history) {
@@ -658,10 +687,11 @@ async function processBatchedMessages(chatId, sock) {
     const cleanCmd = combinedText.trim().toLowerCase();
     const activeSock = currentSock || sock;
 
-    // 0. Admin Commands & Takeover Mode
-    const targetJid = (chatId && chatId.endsWith("@lid")) ? OWNER_JID : chatId;
+    // 0. Admin Fast Commands (#stats, #pause, #resume, #help)
+    const isSelfChat = chatId === OWNER_JID || (chatId && chatId.endsWith("@lid"));
+    const targetJid = isSelfChat ? OWNER_JID : chatId;
 
-    if (chatId === OWNER_JID || (chatId && chatId.endsWith("@lid")) || cleanCmd.startsWith("#")) {
+    if (cleanCmd.startsWith("#")) {
       if (cleanCmd === "#stats" || cleanCmd === "#leads") {
         const allData = loadAllChatHistory();
         const total = Object.keys(allData).length;
@@ -719,6 +749,35 @@ async function processBatchedMessages(chatId, sock) {
         console.log(`🛠️ [ADMIN HELP DISPATCHED] Sent to ${targetJid}`);
         return;
       }
+    }
+
+    // 1. If Owner is asking ANY question in Self Chat -> Executive AI Co-Pilot answers with full CRM context!
+    if (isSelfChat) {
+      console.log(`👑 [OWNER EXECUTIVE QUERY] "${combinedText}"`);
+      try {
+        await activeSock.sendPresenceUpdate("composing", targetJid);
+      } catch (e) {}
+
+      let ownerReply = "";
+      try {
+        ownerReply = await askGemini(combinedText, history, {
+          isOwner: true,
+          clientName: "Shubham Vernekar",
+          mediaBuffers: mediaItems,
+        });
+      } catch (err) {
+        ownerReply = `⚠️ Executive AI Error: ${err.message}`;
+      }
+
+      await activeSock.sendMessage(targetJid, { text: ownerReply });
+      if (chatId && targetJid !== chatId) {
+        try { await activeSock.sendMessage(chatId, { text: ownerReply }); } catch (e) {}
+      }
+
+      appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
+      appendToChatMemory(chatId, "assistant", ownerReply, "Shubham (Owner)", true);
+      console.log(`🤖 [EXECUTIVE AI REPLIED TO OWNER]: "${ownerReply.replace(/\n/g, " ")}"`);
+      return;
     }
 
     if (pausedChats.has(chatId)) {
@@ -1049,13 +1108,14 @@ async function startBot() {
           msg.message.videoMessage?.caption ||
           "";
 
+        const chatId = msg.key.remoteJid;
+        const isSelfChat = chatId === OWNER_JID || (chatId && chatId.endsWith("@lid"));
         const isCommand = text.trim().startsWith("#");
 
-        // Skip our own outgoing messages UNLESS it is an admin command (#stats, #pause, #resume, #help)
-        if (msg.key.fromMe && !isCommand) continue;
+        // Skip our own outgoing messages in customer chats, but ALLOW ALL messages in Owner Self-Chat or starting with #
+        if (msg.key.fromMe && !isSelfChat && !isCommand) continue;
 
-        const chatId = msg.key.remoteJid;
-        const senderName = msg.pushName || (msg.key.fromMe ? "Shubham (Admin)" : chatId.split("@")[0]);
+        const senderName = isSelfChat ? "Shubham (Owner)" : (msg.pushName || chatId.split("@")[0]);
 
         if (IGNORE_GROUPS && chatId.endsWith("@g.us")) continue;
 
