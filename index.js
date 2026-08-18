@@ -182,6 +182,121 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
   return null;
 }
 
+// In-memory state for pending owner-approved quotes waiting for dispatch
+const pendingQuoteDispatches = new Map(); // OWNER_JID -> { targetChatId, clientName, messageText, revisedPrice }
+
+// ------------------------------------------------------------
+//  CLIENT-SPECIFIC QUOTE REVISION & BREAKDOWN ENGINE
+// ------------------------------------------------------------
+async function handleClientQuoteOverride(userMessage) {
+  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
+  if (!apiKey) return null;
+
+  const allData = loadAllChatHistory();
+  const knownClients = Object.entries(allData)
+    .filter(([cid]) => cid !== OWNER_JID && !cid.endsWith("@lid"))
+    .map(([cid, c]) => ({
+      chatId: cid,
+      name: c.name || "Client",
+      phone: cid.split("@")[0],
+      project: c.messages?.filter((m) => m.role === "user").map((m) => m.text).join(" | ") || "",
+    }));
+
+  if (knownClients.length === 0) return null;
+
+  const prompt = `You are an AI Executive Sales Assistant for Shubham Vernekar (Founder of ShubDeep Labs).
+Shubham is sending a command to customize or revise a price quote for a SPECIFIC client based on their conversation history.
+
+Known Clients in CRM:
+${JSON.stringify(knownClients, null, 2)}
+
+Owner's Message: "${userMessage}"
+
+Determine if Shubham is asking to quote or revise the price for one of the clients (e.g. "quote Deepa 13000 instead of 15000", "Deepa la 13000 quote kar", "revise Deepa's price to 13k", "quote client Deepa 13000").
+
+If YES, respond ONLY with valid JSON:
+{
+  "isQuoteOverride": true,
+  "matchedChatId": "exact chatId string from known clients",
+  "clientName": "Client Name",
+  "revisedPrice": "e.g. ₹13,000",
+  "projectRequirement": "Short summary of what client wanted (e.g. Gold E-Commerce Website with Live Rates & Cart)",
+  "scopeBreakdown": [
+    "Feature 1 with delivery note",
+    "Feature 2",
+    "Feature 3"
+  ],
+  "proposedMessage": "Warm, natural WhatsApp message for the client in their language explaining that Shubham has specially reviewed their requirements and approved this revised quote of ₹X for them."
+}
+
+If NO, respond ONLY with:
+{
+  "isQuoteOverride": false
+}`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 800,
+          responseMimeType: "application/json",
+        },
+      }),
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const parsed = JSON.parse(raw);
+
+    if (parsed.isQuoteOverride && parsed.matchedChatId && parsed.revisedPrice) {
+      // Save revised quote to client's persistent memory
+      if (allData[parsed.matchedChatId]) {
+        allData[parsed.matchedChatId].approvedQuote = parsed.revisedPrice;
+        saveAllChatHistory(allData);
+      }
+
+      // Store pending dispatch
+      pendingQuoteDispatches.set(OWNER_JID, {
+        targetChatId: parsed.matchedChatId,
+        clientName: parsed.clientName,
+        messageText: parsed.proposedMessage,
+        revisedPrice: parsed.revisedPrice,
+      });
+
+      const bullets = (parsed.scopeBreakdown || []).map((b) => `• ${b}`).join("\n");
+      const cleanPhone = parsed.matchedChatId.split("@")[0];
+
+      return (
+`🎯 *[REVISED QUOTATION PREPARED FOR ${parsed.clientName.toUpperCase()}]* 💼
+
+👤 *Client:* ${parsed.clientName} (+${cleanPhone})
+💡 *Project:* ${parsed.projectRequirement}
+💰 *Approved Revised Quote:* *${parsed.revisedPrice}*
+
+📋 *Scope & Features Included:*
+${bullets || "• Complete custom web application implementation & source code"}
+
+💬 *Proposed Message for ${parsed.clientName}:*
+"${parsed.proposedMessage}"
+
+━━━━━━━━━━━━━━━━━━━━
+👉 _To send this revised quote directly to ${parsed.clientName} on WhatsApp, simply reply:_ *Send to ${parsed.clientName.split(" ")[0]}* (or *Yes*)`
+      );
+    }
+  } catch (e) {
+    console.warn("Could not process quote override:", e.message);
+  }
+
+  return null;
+}
+
 // ------------------------------------------------------------
 //  PERSISTENT CHAT HISTORY STORAGE (Remembers 1-3+ Months)
 // ------------------------------------------------------------
@@ -583,7 +698,7 @@ async function askGemini(userMessage, history = [], options = {}) {
     throw new Error("Gemini API key is not configured! Please add your key in .env or config.js");
   }
 
-  const { timeGap, clientName, mediaBuffers = [], isOwner = false } = options;
+  const { timeGap, clientName, mediaBuffers = [], isOwner = false, approvedQuote = null } = options;
   const knowledge = loadDynamicKnowledge();
 
   let systemInstruction = "";
@@ -595,7 +710,8 @@ async function askGemini(userMessage, history = [], options = {}) {
       .map(([cid, c]) => {
         const lastMsg = c.messages?.slice(-1)[0]?.text || "No message";
         const phone = cid.split("@")[0];
-        return `• Name: ${c.name || "Client"} | Phone/Chat: +${phone} | Priority: ${c.priority || "WARM"} | Business Lead: ${c.isBusinessChat ? "YES" : "NO"} | Last Interaction: ${new Date(c.lastInteraction).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} | Latest Message: "${lastMsg}"`;
+        const quoteNote = c.approvedQuote ? ` [Approved Quote: ${c.approvedQuote}]` : "";
+        return `• Name: ${c.name || "Client"} | Phone/Chat: +${phone}${quoteNote} | Priority: ${c.priority || "WARM"} | Business Lead: ${c.isBusinessChat ? "YES" : "NO"} | Last Interaction: ${new Date(c.lastInteraction).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} | Latest Message: "${lastMsg}"`;
       })
       .join("\n");
 
@@ -614,6 +730,15 @@ YOUR DIRECTIVES:
 - Format lists with clean formatting, bullet points (•), bold names, and emojis!
 - Respond in the language he speaks (English, Marathi, Hindi).`;
   } else {
+    let approvedQuoteInstruction = "";
+    if (approvedQuote) {
+      approvedQuoteInstruction = `
+\n🎯 FOUNDER-APPROVED SPECIAL QUOTE:
+- Founder Shubham Vernekar has officially approved an exclusive custom package rate of **${approvedQuote}** specifically for this client (${clientName || 'Valued Client'})!
+- When discussing pricing, quote this exact price (${approvedQuote}) as a special approved rate from the founder!
+`;
+    }
+
     let timeGapInstruction = "";
     if (timeGap) {
       timeGapInstruction = `
@@ -636,6 +761,7 @@ YOUR DIRECTIVES:
     systemInstruction = `You are the friendly, tech-savvy AI Client Coordinator for "ShubDeep Labs" on WhatsApp.
 
 Your goal is to talk like a warm, engaging human team member and guide the customer STEP-BY-STEP through a natural interactive conversation. 
+${approvedQuoteInstruction}
 ${timeGapInstruction}
 ${nightInstruction}
 
@@ -820,17 +946,44 @@ async function processBatchedMessages(chatId, sock) {
       }
     }
 
-    // 1. If Owner is in Self Chat -> Executive AI Co-Pilot or Live Self-Configurator!
+    // 1. If Owner is in Self Chat -> Executive AI Co-Pilot, Live Quote Customizer & Self-Configurator!
     if (isSelfChat) {
       console.log(`👑 [OWNER EXECUTIVE QUERY] "${combinedText}"`);
       try {
         await activeSock.sendPresenceUpdate("composing", targetJid);
       } catch (e) {}
 
-      // First check if owner is teaching or customizing the bot
-      const configReply = await handleOwnerConfiguration(combinedText);
-      let ownerReply = configReply;
+      // A. Check if owner is confirming a pending quote dispatch (e.g. "Send", "Send to Deepa", "Yes")
+      const pending = pendingQuoteDispatches.get(OWNER_JID);
+      if (pending && /^(send|yes|send it|send to|ok send|dispatch)/i.test(cleanCmd)) {
+        pendingQuoteDispatches.delete(OWNER_JID);
+        try {
+          await activeSock.sendMessage(pending.targetChatId, { text: pending.messageText });
+          appendToChatMemory(pending.targetChatId, "assistant", pending.messageText, pending.clientName, true);
+          console.log(`🚀 [DISPATCHED REVISED QUOTE] Sent to ${pending.clientName} (${pending.targetChatId})`);
+          
+          const confirmMsg = `🚀 *Quotation Sent to ${pending.clientName}!* ✨\n\nI have dispatched your approved quote of *${pending.revisedPrice}* directly to their WhatsApp chat!`;
+          await activeSock.sendMessage(targetJid, { text: confirmMsg });
+          if (chatId && targetJid !== chatId) {
+            try { await activeSock.sendMessage(chatId, { text: confirmMsg }); } catch (e) {}
+          }
+          return;
+        } catch (sendErr) {
+          await activeSock.sendMessage(targetJid, { text: `⚠️ Could not send to client: ${sendErr.message}` });
+          return;
+        }
+      }
 
+      // B. Check if owner is asking to customize/revise a quote for a specific client
+      const quoteOverrideReply = await handleClientQuoteOverride(combinedText);
+      let ownerReply = quoteOverrideReply;
+
+      // C. Check if owner is teaching or customizing the bot
+      if (!ownerReply) {
+        ownerReply = await handleOwnerConfiguration(combinedText);
+      }
+
+      // D. Otherwise, process with Executive AI Co-Pilot with full CRM context
       if (!ownerReply) {
         try {
           ownerReply = await askGemini(combinedText, history, {
@@ -968,6 +1121,7 @@ Once completed, please share the transaction screenshot here to confirm your pro
         timeGap,
         clientName: memory.name || senderName,
         mediaBuffers: mediaItems,
+        approvedQuote: memory.approvedQuote || null,
       });
     } catch (err) {
       console.error("Gemini error:", err.message);

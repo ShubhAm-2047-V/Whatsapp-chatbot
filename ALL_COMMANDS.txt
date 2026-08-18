@@ -25,6 +25,17 @@ You (the Owner) can send these commands directly inside any WhatsApp chat:
 • #commands
   -> Same as #help.
 
+• REVISE CLIENT QUOTE (TYPE IN YOUR SELF-CHAT):
+  -> "Quote Deepa 13000 instead of 15000"
+  -> "Deepa la 13000 quote kar"
+  -> "Revise Deepa's price to 13k"
+  * Action: The bot reads Deepa's exact chat history, generates a revised scope breakdown & proposed WhatsApp message, and asks you if you want to dispatch it directly to Deepa on WhatsApp (Reply "Send to Deepa" or "Yes" to send)!
+
+• LIVE TRAIN / RE-CONFIGURE BOT (TYPE IN YOUR SELF-CHAT):
+  -> "Update basic website price to 5k"
+  -> "We now offer Flutter mobile apps starting at 25000"
+  -> "Always offer 10% discount for college students"
+
 
 --------------------------------------------------------------------------------
 2. 💬 CUSTOMER TEST PHRASES (TEST EVERY BOT FEATURE)
