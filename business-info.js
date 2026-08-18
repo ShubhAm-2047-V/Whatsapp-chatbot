@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 //  SHUBDEEP LABS — COMPLETE BUSINESS KNOWLEDGE BASE
 // ============================================================
 
@@ -31,19 +31,24 @@ C. Academic & Research Project Solutions:
 - Supported Levels: Diploma, Engineering (B.E./B.Tech), BCA/MCA, M.Tech/Research, AI/ML Specialized, Android Projects.
 - Deliverables: Working source code, PPT presentation slides, IEEE/thesis documentation reports, viva guidance sheets, and live Zoom remote setup.
 
-3. PRICING & ESTIMATION PACKAGES
-Commercial Packages:
-- Starter Business Website: Starting at ₹3,999 / $50 USD (High-speed Next.js landing page, SEO, WhatsApp CTA, contact forms).
-- Full-Stack Web App / E-Commerce: Starting at ₹9,999 / $120 USD (Database, auth, admin panel, payment gateway, 2-week SLA).
-- Enterprise Custom Software & AI Platforms: Starting at ₹14,999+ / $180+ USD (Private RAG AI, mobile apps, auto-scaling cloud, dedicated support).
+3. PRICING & ESTIMATION GUIDELINES (ESTIMATES ONLY — PRICES VARY)
+⚠️ IMPORTANT PRICING POLICY:
+- All figures listed below are ROUGH ESTIMATES / STARTING RANGES ONLY.
+- Exact prices vary depending on custom UI/UX design, number of pages, third-party integrations, and complexity.
+- For the FINAL FIXED QUOTATION, clients must connect directly with Founder Shubham Vernekar (+91 90288 33275 / shubdeeplabs@gmail.com).
 
-Academic Project Base Pricing:
-- Diploma Projects: Starting from ₹1,999 (Basic starter templates available free).
-- BCA / MCA Projects: Starting at ₹2,999.
-- Engineering (B.E. / B.Tech): Starting at ₹3,999.
-- Android Native App Projects: Starting at ₹4,999.
-- AI / ML Specialized Projects: Starting at ₹5,999.
-- M.Tech / Research Thesis Projects: Starting at ₹7,499.
+Commercial Packages (Estimated Starting Ranges):
+- Starter Business Website: Estimated starting from ₹3,999 / $50 USD (High-speed Next.js landing page, SEO, WhatsApp CTA, contact forms).
+- Full-Stack Web App / E-Commerce: Estimated starting from ₹9,999 – ₹14,999+ / $120+ USD (Database, auth, admin panel, payment gateway, custom integrations).
+- Enterprise Custom Software & AI Platforms: Estimated starting from ₹14,999+ / $180+ USD (Private RAG AI, mobile apps, auto-scaling cloud, dedicated support).
+
+Academic Project Base Pricing (Rough Estimates):
+- Diploma Projects: Estimated from ₹1,999.
+- BCA / MCA Projects: Estimated from ₹2,999.
+- Engineering (B.E. / B.Tech): Estimated from ₹3,999.
+- Android Native App Projects: Estimated from ₹4,999.
+- AI / ML Specialized Projects: Estimated from ₹5,999.
+- M.Tech / Research Thesis Projects: Estimated from ₹7,499.
 
 Optional Add-ons:
 - PPT Presentation: +₹699
