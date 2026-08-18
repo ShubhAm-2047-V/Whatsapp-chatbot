@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 //  SHUBDEEP LABS — ENTERPRISE CONVERSATIONAL AI AGENT
 //  WhatsApp: Baileys Engine
 //  AI Brain: Google Gemini API
@@ -6,6 +6,7 @@
 
 require("dotenv").config();
 const http = require("http");
+const https = require("https");
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -20,6 +21,7 @@ const { GEMINI_API_KEY, GEMINI_MODEL } = require("./config");
 
 // ---------- CONFIG ----------
 const PORT = process.env.PORT || 3000;
+const PUBLIC_APP_URL = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || "https://whatsapp-chatbot-1-jej3.onrender.com";
 const IGNORE_GROUPS = true; // set false if you also want the bot to reply in groups
 const FILTER_PERSONAL_MESSAGES = true; // true = skip casual friend/family chats, only answer business queries
 const MAX_HISTORY_TURNS = 12;
@@ -35,6 +37,11 @@ let isReconnecting = false;
 //  CLOUD HEALTH CHECK SERVER (For Render / Cloud 24/7 Hosting)
 // ------------------------------------------------------------
 http.createServer((req, res) => {
+  if (req.url === "/health" || req.url === "/ping") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ status: "alive", uptime: process.uptime(), timestamp: new Date().toISOString() }));
+  }
+
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(`
     <html>
@@ -49,7 +56,33 @@ http.createServer((req, res) => {
   `);
 }).listen(PORT, () => {
   console.log(`🌐 Cloud Health Check server listening on port ${PORT}`);
+  startSelfPing();
 });
+
+// ------------------------------------------------------------
+//  BUILT-IN SELF-PING KEEP-ALIVE (Prevents Server Sleep)
+// ------------------------------------------------------------
+function startSelfPing() {
+  if (!PUBLIC_APP_URL || PUBLIC_APP_URL.includes("localhost")) {
+    console.log("ℹ️ Self-ping disabled for local environment.");
+    return;
+  }
+
+  console.log(`🔄 Self-Ping keep-alive active for: ${PUBLIC_APP_URL} (Interval: 10 mins)`);
+
+  setInterval(() => {
+    try {
+      const client = PUBLIC_APP_URL.startsWith("https") ? https : http;
+      client.get(PUBLIC_APP_URL, (res) => {
+        console.log(`⏱️ [KEEP-ALIVE] Self-ping successful at ${new Date().toLocaleTimeString()} (Status: ${res.statusCode})`);
+      }).on("error", (err) => {
+        console.warn(`⚠️ [KEEP-ALIVE] Ping failed:`, err.message);
+      });
+    } catch (e) {
+      console.warn("⚠️ [KEEP-ALIVE] Error executing ping:", e.message);
+    }
+  }, 10 * 60 * 1000); // Ping every 10 minutes
+}
 
 // ------------------------------------------------------------
 //  AUTOMATIC LEAD CAPTURE SYSTEM
