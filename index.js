@@ -984,7 +984,7 @@ async function processBatchedMessages(chatId, sock) {
     const activeSock = currentSock || sock;
 
     // 0. Admin Fast Commands (#stats, #pause, #resume, #help)
-    const isSelfChat = chatId === OWNER_JID || (chatId && chatId.endsWith("@lid"));
+    const isSelfChat = !!queueData.isSelfChat || (chatId === OWNER_JID);
     const targetJid = isSelfChat ? OWNER_JID : chatId;
 
     if (cleanCmd.startsWith("#")) {
@@ -1437,7 +1437,9 @@ async function startBot() {
           "";
 
         const chatId = msg.key.remoteJid;
-        const isSelfChat = chatId === OWNER_JID || (chatId && chatId.endsWith("@lid"));
+        const myPhone = (sock.user?.id ? sock.user.id.split(":")[0].replace(/\D/g, "") : "919028833275");
+        const remotePhone = chatId.split("@")[0].replace(/\D/g, "");
+        const isSelfChat = (chatId === OWNER_JID || remotePhone === myPhone || remotePhone === "9028833275") && (msg.key.fromMe || chatId === OWNER_JID);
         const isCommand = text.trim().startsWith("#");
 
         // Skip our own outgoing messages in customer chats, but ALLOW ALL messages in Owner Self-Chat or starting with #
@@ -1478,6 +1480,7 @@ async function startBot() {
           mediaItems: [],
           senderName,
           msgKey: msg.key,
+          isSelfChat,
         };
 
         if (existing.timer) clearTimeout(existing.timer);
