@@ -600,12 +600,24 @@ async function startBot() {
   console.log("⏳ Initializing WhatsApp session...");
   const { state: authState, saveCreds } = await useMultiFileAuthState("./auth_session");
 
+  // In-memory retry counter cache for Signal decryption retries
+  const msgRetryCounterMap = new Map();
+  const msgRetryCounterCache = {
+    get: (key) => msgRetryCounterMap.get(key),
+    set: (key, val) => msgRetryCounterMap.set(key, val),
+    del: (key) => msgRetryCounterMap.delete(key),
+  };
+
   const sock = makeWASocket({
     auth: authState,
     logger: P({ level: "silent" }),
     printQRInTerminal: false,
     syncFullHistory: false,
-    browser: ["Ubuntu", "Chrome", "20.0.04"],
+    msgRetryCounterCache,
+    getMessage: async (key) => {
+      return { conversation: "" };
+    },
+    browser: ["Windows", "Chrome", "122.0.0.0"],
   });
 
   currentSock = sock;
