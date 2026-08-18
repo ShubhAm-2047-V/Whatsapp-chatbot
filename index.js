@@ -285,15 +285,17 @@ async function processBatchedMessages(chatId, sock) {
       });
     }
 
-    // 2. Mark as read (blue ticks)
+    // 2. Mark as read (blue ticks) immediately
     try {
       const activeSock = currentSock || sock;
       if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
     } catch (e) {}
 
-    // 3. Human reading delay (1.0 - 2.0s)
-    const readingDelay = Math.min(Math.max(combinedText.length * 15, 1000), 2000);
-    await new Promise((r) => setTimeout(r, readingDelay));
+    // 3. Realistic short typing status while generating response
+    try {
+      const activeSock = currentSock || sock;
+      if (activeSock) await activeSock.sendPresenceUpdate("composing", chatId);
+    } catch (e) {}
 
     // 4. Generate AI response from Gemini
     let reply;
@@ -309,23 +311,10 @@ async function processBatchedMessages(chatId, sock) {
       reply = "Hey there! 👋 Welcome to ShubDeep Labs! ✨ How can I help you with your project today? 😊";
     }
 
-    // 5. Realistic Human Typing Simulation
-    try {
-      const activeSock = currentSock || sock;
-      if (activeSock) await activeSock.sendPresenceUpdate("composing", chatId);
-    } catch (e) {}
+    // 5. Brief realistic pause (300-500ms max)
+    await new Promise((r) => setTimeout(r, 400));
 
-    const typingDuration = calculateHumanTypingTime(reply);
-    await new Promise((r) => setTimeout(r, typingDuration));
-
-    try {
-      const activeSock = currentSock || sock;
-      if (activeSock) await activeSock.sendPresenceUpdate("paused", chatId);
-    } catch (e) {}
-
-    await new Promise((r) => setTimeout(r, 300 + Math.random() * 300));
-
-    // 6. Send the message with active socket & safety fallback
+    // 6. Send the message immediately
     const activeSock = currentSock || sock;
     if (activeSock) {
       await activeSock.sendMessage(chatId, { text: reply });
@@ -505,7 +494,7 @@ async function startBot() {
 
         existing.timer = setTimeout(() => {
           processBatchedMessages(chatId, sock);
-        }, 2200);
+        }, 600); // 600ms debounce (fast instant response)
 
         messageQueue.set(chatId, existing);
       } catch (err) {
