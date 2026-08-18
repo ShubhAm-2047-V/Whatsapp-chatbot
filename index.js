@@ -708,27 +708,49 @@ async function askGemini(userMessage, history = [], options = {}) {
     const crmSummary = Object.entries(allData)
       .filter(([cid]) => cid !== OWNER_JID && !cid.endsWith("@lid"))
       .map(([cid, c]) => {
-        const lastMsg = c.messages?.slice(-1)[0]?.text || "No message";
         const phone = cid.split("@")[0];
-        const quoteNote = c.approvedQuote ? ` [Approved Quote: ${c.approvedQuote}]` : "";
-        return `• Name: ${c.name || "Client"} | Phone/Chat: +${phone}${quoteNote} | Priority: ${c.priority || "WARM"} | Business Lead: ${c.isBusinessChat ? "YES" : "NO"} | Last Interaction: ${new Date(c.lastInteraction).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} | Latest Message: "${lastMsg}"`;
+        const quoteNote = c.approvedQuote ? ` [Owner Approved Quote: ${c.approvedQuote}]` : "";
+        const clientMsgs = (c.messages || [])
+          .slice(-10)
+          .map((m) => `    ${m.role === "user" ? "Client" : "AI Assistant"}: "${m.text}"`)
+          .join("\n");
+
+        return (
+`============================================================
+CLIENT RECORD: ${c.name || "Client"} (+${phone})
+• Priority: ${c.priority || "WARM"} | Lead Status: ${c.isBusinessChat ? "Active Business Lead 🔥" : "Casual Chat"}${quoteNote}
+• Last Active: ${new Date(c.lastInteraction).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
+• Conversation History & Requirements Discussed:
+${clientMsgs || "    No message history."}
+============================================================`
+        );
       })
-      .join("\n");
+      .join("\n\n");
 
-    systemInstruction = `You are the private AI Executive Co-Pilot for Shubham Vernekar, the Founder & Owner of ShubDeep Labs.
-You have real-time live access to the entire CRM database, active chats, leads, and company operations.
+    systemInstruction = `You are the brilliant, highly intelligent Executive AI Chief of Staff for Shubham Vernekar, the Founder & Owner of ShubDeep Labs.
+You have real-time, live access to all active client conversations, project specifications, quotations, and leads in the company CRM.
 
-LIVE ACTIVE CRM CLIENT CHATS:
+--- LIVE CRM CLIENT DATABASE & CONVERSATION TRANSCRIPTS ---
 ${crmSummary || "No active client conversations yet."}
+--- END CRM DATABASE ---
 
 KNOWLEDGE BASE REFERENCE:
 ${knowledge}
 
-YOUR DIRECTIVES:
-- Shubham is speaking with you directly in his private executive console.
-- Answer all his questions completely, accurately, and politely (e.g. list active client names, summarize specific client chats, list leads, calculate statistics, draft proposals, or answer questions).
-- Format lists with clean formatting, bullet points (•), bold names, and emojis!
-- Respond in the language he speaks (English, Marathi, Hindi).`;
+CORE DIRECTIVES WHEN TALKING TO SHUBHAM:
+1. BE PROACTIVE, CRISP & INCREDIBLY CLEVER:
+   - When Shubham asks about ANY client (e.g. "What's the status of Deepa", "Tell me about Deepa", "Who wants a gold website?"), match their name or requirements immediately from the database above (e.g. "Deepa" matches "Deepa Dinesh Vernekar").
+   - Give a rich, intelligent status summary:
+     * 👤 **Client Name & Phone:** (e.g. Deepa Dinesh Vernekar +112666236477622)
+     * 💡 **Project Scope & Requirements:** (e.g. Gold E-Commerce Website with live daily rates, shopping cart, customer login, payment gateway)
+     * 💰 **Quotation Status:** (e.g. Ballpark quoted: ₹9,999 – ₹14,999 or Owner approved quote)
+     * 🔥 **Lead Priority & Urgency:** (e.g. HOT — Client has repeatedly requested an urgent callback to finalize)
+     * 💬 **Last Message & Time:**
+     * 🎯 **Next Recommended Step:**
+   - NEVER be vague or ask Shubham "which Deepa do you mean? A team member or client?". You already have all the client records right in front of you!
+2. GENERAL QUERIES & COMMANDS:
+   - When asked for "all leads" or "active chats", provide a clean, organized bulleted list with client names, project topics, and phone numbers.
+   - Speak naturally with executive professionalism and warmth (English, Marathi, Hindi).`;
   } else {
     let approvedQuoteInstruction = "";
     if (approvedQuote) {
@@ -896,9 +918,6 @@ async function processBatchedMessages(chatId, sock) {
         
         if (activeSock) {
           await activeSock.sendMessage(targetJid, { text: statsReply });
-          if (chatId && targetJid !== chatId) {
-            try { await activeSock.sendMessage(chatId, { text: statsReply }); } catch (e) {}
-          }
         }
         console.log(`📊 [ADMIN STATS DISPATCHED] Sent to ${targetJid}`);
         return;
@@ -937,9 +956,6 @@ async function processBatchedMessages(chatId, sock) {
 • *"Call Shubham / Contact Owner"* — Hot lead alert sent to your WhatsApp!`;
         if (activeSock) {
           await activeSock.sendMessage(targetJid, { text: helpReply });
-          if (chatId && targetJid !== chatId) {
-            try { await activeSock.sendMessage(chatId, { text: helpReply }); } catch (e) {}
-          }
         }
         console.log(`🛠️ [ADMIN HELP DISPATCHED] Sent to ${targetJid}`);
         return;
@@ -964,9 +980,6 @@ async function processBatchedMessages(chatId, sock) {
           
           const confirmMsg = `🚀 *Quotation Sent to ${pending.clientName}!* ✨\n\nI have dispatched your approved quote of *${pending.revisedPrice}* directly to their WhatsApp chat!`;
           await activeSock.sendMessage(targetJid, { text: confirmMsg });
-          if (chatId && targetJid !== chatId) {
-            try { await activeSock.sendMessage(chatId, { text: confirmMsg }); } catch (e) {}
-          }
           return;
         } catch (sendErr) {
           await activeSock.sendMessage(targetJid, { text: `⚠️ Could not send to client: ${sendErr.message}` });
@@ -997,9 +1010,6 @@ async function processBatchedMessages(chatId, sock) {
       }
 
       await activeSock.sendMessage(targetJid, { text: ownerReply });
-      if (chatId && targetJid !== chatId) {
-        try { await activeSock.sendMessage(chatId, { text: ownerReply }); } catch (e) {}
-      }
 
       appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
       appendToChatMemory(chatId, "assistant", ownerReply, "Shubham (Owner)", true);
