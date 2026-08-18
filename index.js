@@ -20,16 +20,113 @@ const { GEMINI_API_KEY, GEMINI_MODEL } = require("./config");
 // ---------- CONFIG ----------
 const IGNORE_GROUPS = true; // set false if you also want the bot to reply in groups
 const FILTER_PERSONAL_MESSAGES = true; // true = skip casual friend/family chats, only answer business queries
-const MAX_HISTORY_TURNS = 12;
+const MAX_HISTORY_TURNS = 20;
 const LEADS_FILE = path.join(__dirname, "leads.json");
+const CHAT_HISTORY_FILE = path.join(__dirname, "data", "chat_history.json");
 
-// In-memory conversation state & message debounce queue
-const chatHistory = new Map();
+// Ensure data folder exists
+if (!fs.existsSync(path.join(__dirname, "data"))) {
+  fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
+}
+
+// In-memory debounce queue
 const messageQueue = new Map(); // chatId -> { timer, messages: [], senderName, msgKey }
 let currentSock = null;
 let isReconnecting = false;
 
+// ------------------------------------------------------------
+//  PERSISTENT CHAT HISTORY STORAGE (Remembers 1-3+ Months)
+// ------------------------------------------------------------
+function loadAllChatHistory() {
+  try {
+    if (fs.existsSync(CHAT_HISTORY_FILE)) {
+      const raw = fs.readFileSync(CHAT_HISTORY_FILE, "utf-8");
+      return JSON.parse(raw || "{}");
+    }
+  } catch (e) {
+    console.warn("⚠️ Could not load chat history file:", e.message);
+  }
+  return {};
+}
 
+function saveAllChatHistory(allData) {
+  try {
+    fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(allData, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("⚠️ Could not write chat history file:", e.message);
+  }
+}
+
+function getChatMemory(chatId) {
+  const all = loadAllChatHistory();
+  return all[chatId] || {
+    name: "",
+    firstContact: new Date().toISOString(),
+    lastInteraction: 0,
+    lastSender: "",
+    isBusinessChat: false,
+    followUpCount: 0,
+    lastFollowUp: null,
+    messages: [],
+  };
+}
+
+function appendToChatMemory(chatId, role, text, senderName = "", isBusiness = true) {
+  const all = loadAllChatHistory();
+  const chat = all[chatId] || {
+    name: senderName,
+    firstContact: new Date().toISOString(),
+    lastInteraction: Date.now(),
+    lastSender: role,
+    isBusinessChat: isBusiness,
+    followUpCount: 0,
+    lastFollowUp: null,
+    messages: [],
+  };
+
+  if (senderName && !chat.name) chat.name = senderName;
+  chat.lastInteraction = Date.now();
+  chat.lastSender = role;
+  if (isBusiness) chat.isBusinessChat = true;
+  if (role === "user") chat.followUpCount = 0; // reset follow-up count if user responded
+
+  chat.messages.push({
+    role,
+    text,
+    timestamp: Date.now(),
+  });
+
+  // Keep last 40 message turns per contact
+  if (chat.messages.length > MAX_HISTORY_TURNS * 2) {
+    chat.messages = chat.messages.slice(-MAX_HISTORY_TURNS * 2);
+  }
+
+  all[chatId] = chat;
+  saveAllChatHistory(all);
+}
+
+function formatTimeGap(lastTimestamp) {
+  if (!lastTimestamp) return null;
+  const diffMs = Date.now() - lastTimestamp;
+  const diffHours = diffMs / (1000 * 60 * 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffDays >= 60) {
+    const months = Math.floor(diffDays / 30);
+    return `${months} months`;
+  }
+  if (diffDays >= 30) {
+    return "1 month";
+  }
+  if (diffDays >= 7) {
+    const weeks = Math.floor(diffDays / 7);
+    return `${weeks} weeks`;
+  }
+  if (diffDays >= 2) {
+    return `${diffDays} days`;
+  }
+  return null;
+}
 
 // ------------------------------------------------------------
 //  AUTOMATIC LEAD CAPTURE SYSTEM
@@ -54,17 +151,42 @@ function saveLead(leadData) {
 }
 
 // ------------------------------------------------------------
-//  INTENT CLASSIFIER (Strict Business vs. Personal Filter)
+//  INTENT CLASSIFIER (Smart Business vs. Personal Filter)
 // ------------------------------------------------------------
-async function classifyMessageIntent(userMessage, history = []) {
+async function classifyMessageIntent(userMessage, history = [], lastSender = "") {
   if (!FILTER_PERSONAL_MESSAGES) {
     return { isBusinessRelated: true, isLead: false, reason: "Filter disabled" };
   }
 
   const cleanText = userMessage.trim().toLowerCase();
 
-  // If there's NO previous business history and message is just a generic casual 1-word greeting, SKIP!
-  // (Because friends often text "hi", "hello", "kasa ahes", "bhai")
+  // 1. If previous message from Assistant asked for Name/Requirements/Budget, ANY direct answer is VALID business response!
+  const lastBotMsg = history.filter((h) => h.role === "assistant").pop()?.text || "";
+  const isAnsweringBotPrompt = /name|tumcha shubhnaav|shubhnaav|naam|budget|project|website|app|requirements|timeline/i.test(lastBotMsg);
+
+  if (isAnsweringBotPrompt && history.length > 0 && userMessage.trim().split(/\s+/).length <= 6) {
+    return {
+      isBusinessRelated: true,
+      isLead: true,
+      reason: "User is answering a direct question from the assistant (e.g. name or requirements)",
+    };
+  }
+
+  // 2. If ongoing active conversation, don't drop replies
+  if (history.length > 0) {
+    const hasBusinessHistory = history.some((h) =>
+      /website|app|software|bot|shubdeep|project|pricing|service|demo|contact/i.test(h.text)
+    );
+    if (hasBusinessHistory && !["bye", "goodnight", "gn"].includes(cleanText)) {
+      return {
+        isBusinessRelated: true,
+        isLead: false,
+        reason: "Ongoing business conversation continuation",
+      };
+    }
+  }
+
+  // 3. If there's NO history and it's just a generic 1-word greeting from a casual friend, skip
   if (history.length === 0) {
     const genericCasualGreetings = [
       "hi", "hii", "hiii", "hello", "hey", "heyy", "namaste", "namaskar", 
@@ -74,14 +196,14 @@ async function classifyMessageIntent(userMessage, history = []) {
       return { 
         isBusinessRelated: false, 
         isLead: false, 
-        reason: "Generic 1-word greeting without business context (likely a friend/personal contact)" 
+        reason: "Generic 1-word greeting without business context" 
       };
     }
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
-  const prompt = `You are a strict AI intent classifier for the WhatsApp account of "Shubdeep Labs".
-Your objective is to determine whether an incoming WhatsApp message is a GENUINE BUSINESS INQUIRY or a PERSONAL / CASUAL message between friends, family, or personal acquaintances that the automated bot should SKIP.
+  const prompt = `You are a strict AI intent classifier for the WhatsApp business account of "Shubdeep Labs".
+Your objective is to determine whether an incoming WhatsApp message is a GENUINE BUSINESS INQUIRY or a PERSONAL / CASUAL message between friends/family.
 
 --- BUSINESS CONTEXT ---
 ${businessInfo}
@@ -93,12 +215,11 @@ ${history.map((h) => `${h.role === "user" ? "Customer" : "Assistant"}: ${h.text}
 Incoming Message: "${userMessage}"
 
 STRICT CLASSIFICATION RULES:
-1. PERSONAL / CASUAL (isBusinessRelated: false) -> SKIP:
-   - Standalone casual greetings with no business inquiry ("hi", "hello", "kasa ahes", "kaha hai bhai", "call kar", "bhai dinner?", "udya yenar ka").
-   - Friend/family chats in any language (English, Hindi, Marathi, etc.).
-2. BUSINESS / CUSTOMER INQUIRY (isBusinessRelated: true) -> REPLY:
-   - Inquiries mentioning software, website, app, AI bot, pricing, college/diploma/btech project, quote, portfolio, founder/owner inquiry, or business meeting.
-   - Ongoing conversation where customer is providing their name, requirements, or deadline in response to the bot.
+1. BUSINESS / CUSTOMER INQUIRY (isBusinessRelated: true) -> REPLY:
+   - Mentions software, website, app, AI bot, pricing, college/btech project, portfolio, founder inquiry, services.
+   - Ongoing conversation where customer provides their name (e.g., "Deepa", "Rahul"), contact, or answers a question.
+2. PERSONAL / CASUAL (isBusinessRelated: false) -> SKIP:
+   - Pure friend/family casual talks ("kasa ahes", "dinner la yenar ka", "call kar bhai").
 
 Respond ONLY with a valid JSON object matching this schema:
 {
@@ -137,26 +258,40 @@ Respond ONLY with a valid JSON object matching this schema:
         isLead: !!parsed.isLead,
         reason: parsed.reason || "Classified by Gemini",
       };
-    } catch (e) {
-      // try fallback
-    }
+    } catch (e) {}
   }
 
-  return { isBusinessRelated: false, isLead: false, reason: "Fallback default safe skip" };
+  // If history exists, default to reply rather than skip
+  return {
+    isBusinessRelated: history.length > 0,
+    isLead: false,
+    reason: history.length > 0 ? "Defaulted to reply with history context" : "Fallback safe skip",
+  };
 }
 
 // ------------------------------------------------------------
 //  HIGH-LEVEL GEMINI CONVERSATIONAL ENGINE (STEP-BY-STEP FUNNEL)
 // ------------------------------------------------------------
-async function askGemini(userMessage, history = []) {
+async function askGemini(userMessage, history = [], timeGap = null, clientName = "") {
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
   if (!apiKey || apiKey === "PASTE_YOUR_FREE_API_KEY_HERE" || apiKey === "PASTE_YOUR_GEMINI_API_KEY_HERE") {
     throw new Error("Gemini API key is not configured! Please add your key in .env or config.js");
   }
 
+  let timeGapInstruction = "";
+  if (timeGap) {
+    timeGapInstruction = `
+\n⚠️ TIME-GAP AWARENESS (LONG TIME NO SEE):
+- The customer is replying after **${timeGap}**!
+- Warmly greet them like an old acquaintance: "Hey ${clientName || 'there'}! 👋 So great to hear from you again! Hope you have been doing great! ✨ Where have you been? 😃"
+- Briefly recall what you were discussing previously and invite them to pick up right where you left off!
+`;
+  }
+
   const systemInstruction = `You are the friendly, tech-savvy AI Client Coordinator for "ShubDeep Labs" on WhatsApp.
 
-Your goal is to talk like a warm, engaging friend and guide the customer STEP-BY-STEP through a natural interactive conversation. 
+Your goal is to talk like a warm, engaging human partner and guide the customer STEP-BY-STEP through a natural interactive conversation. 
+${timeGapInstruction}
 
 CRITICAL CONVERSATIONAL RULES:
 1. NEVER DUMP FULL PRICING LISTS OR MULTIPLE QUESTIONS AT ONCE.
@@ -169,7 +304,7 @@ CRITICAL CONVERSATIONAL RULES:
      * Acknowledge what they said, and ask for their NAME first!
      *(Example: "Namaskar! 👋 ShubDeep Labs madhe tumcha khup swagat ahe! ✨ Website banavnyacha plan khup mast ahe! 🚀 Aadhi mala tumcha shubhnaav (Name) sangal ka please? 😊")*
    
-   - **Step 2 (After they tell their name)**:
+   - **Step 2 (After they tell their name, e.g. 'Deepa')**:
      * Call them by their name warmly! ("Great to meet you, [Name]! 😊🙌")
      * Ask what type of website/business they want to build (e.g. Online Store/Shop, Business Landing Page, Portfolio, or Custom Web App).
    
@@ -234,15 +369,6 @@ ${businessInfo}
 }
 
 // ------------------------------------------------------------
-//  HUMAN-LIKE TYPING DELAY CALCULATOR
-// ------------------------------------------------------------
-function calculateHumanTypingTime(text) {
-  const baseSpeed = text.length * 28;
-  const jitter = Math.floor(Math.random() * 400) + 300;
-  return Math.min(Math.max(baseSpeed + jitter, 1800), 4500);
-}
-
-// ------------------------------------------------------------
 //  PROCESS BUFFERED INCOMING MESSAGES (DEBOUNCED BATCHING)
 // Global process error handlers to prevent unexpected crashes
 process.on("uncaughtException", (err) => {
@@ -266,10 +392,13 @@ async function processBatchedMessages(chatId, sock) {
   console.log(`📩 Processing [${senderName} (${chatId})]: "${combinedText.replace(/\n/g, " ")}"`);
 
   try {
-    const history = chatHistory.get(chatId) || [];
+    // 1. Load persistent chat memory
+    const memory = getChatMemory(chatId);
+    const history = memory.messages || [];
+    const timeGap = formatTimeGap(memory.lastInteraction);
 
-    // 1. Intent Classification Check
-    const classification = await classifyMessageIntent(combinedText, history);
+    // 2. Intent Classification Check
+    const classification = await classifyMessageIntent(combinedText, history, memory.lastSender);
 
     if (!classification.isBusinessRelated) {
       console.log(`⏩ [SKIPPED] Personal chat detected from ${senderName}: "${combinedText}" (Reason: ${classification.reason})`);
@@ -285,22 +414,22 @@ async function processBatchedMessages(chatId, sock) {
       });
     }
 
-    // 2. Mark as read (blue ticks) immediately
+    // 3. Mark as read (blue ticks) immediately
     try {
       const activeSock = currentSock || sock;
       if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
     } catch (e) {}
 
-    // 3. Realistic short typing status while generating response
+    // 4. Realistic short typing status while generating response
     try {
       const activeSock = currentSock || sock;
       if (activeSock) await activeSock.sendPresenceUpdate("composing", chatId);
     } catch (e) {}
 
-    // 4. Generate AI response from Gemini
+    // 5. Generate AI response from Gemini with long-term memory & time-gap context
     let reply;
     try {
-      reply = await askGemini(combinedText, history);
+      reply = await askGemini(combinedText, history, timeGap, memory.name || senderName);
     } catch (err) {
       console.error("Gemini error:", err.message);
       reply =
@@ -311,18 +440,17 @@ async function processBatchedMessages(chatId, sock) {
       reply = "Hey there! 👋 Welcome to ShubDeep Labs! ✨ How can I help you with your project today? 😊";
     }
 
-    // 5. Brief realistic pause (300-500ms max)
+    // 6. Brief realistic pause (400ms)
     await new Promise((r) => setTimeout(r, 400));
 
-    // 6. Send the message immediately
+    // 7. Send the message immediately
     const activeSock = currentSock || sock;
     if (activeSock) {
       await activeSock.sendMessage(chatId, { text: reply });
 
-      // 7. Save conversation history
-      history.push({ role: "user", text: combinedText });
-      history.push({ role: "assistant", text: reply });
-      chatHistory.set(chatId, history.slice(-MAX_HISTORY_TURNS * 2));
+      // 8. Persist to long-term memory file on disk
+      appendToChatMemory(chatId, "user", combinedText, senderName, true);
+      appendToChatMemory(chatId, "assistant", reply, senderName, true);
 
       console.log(`🤖 [REPLIED] To ${senderName}: "${reply.replace(/\n/g, " ")}"`);
     } else {
@@ -331,6 +459,64 @@ async function processBatchedMessages(chatId, sock) {
   } catch (err) {
     console.error(`⚠️ Error processing message for ${chatId}:`, err.message);
   }
+}
+
+// ------------------------------------------------------------
+//  AUTOMATED POLITE FOLLOW-UP ENGINE (Re-engages Silent Leads)
+// ------------------------------------------------------------
+let followUpInterval = null;
+function startFollowUpEngine() {
+  if (followUpInterval) clearInterval(followUpInterval);
+
+  console.log("⏰ Smart Follow-Up Engine initialized (Checks every 30 mins)");
+
+  followUpInterval = setInterval(async () => {
+    try {
+      if (!currentSock) return;
+
+      const allData = loadAllChatHistory();
+      const now = Date.now();
+      const HOURS_24 = 24 * 60 * 60 * 1000;
+      const DAYS_5 = 5 * 24 * 60 * 60 * 1000;
+
+      for (const [chatId, chat] of Object.entries(allData)) {
+        if (!chat.isBusinessChat) continue;
+        if (chat.lastSender !== "assistant") continue; // Client has not replied
+        if ((chat.followUpCount || 0) >= 1) continue; // Only 1 polite follow-up nudge
+
+        const timeSinceLastMsg = now - (chat.lastInteraction || 0);
+
+        // Check if between 24 hours and 5 days of silence
+        if (timeSinceLastMsg >= HOURS_24 && timeSinceLastMsg <= DAYS_5) {
+          const clientName = chat.name ? chat.name.split(" ")[0] : "";
+          const greetingName = clientName ? ` ${clientName}` : "";
+
+          const followUpText = `Hey${greetingName}! 👋 Just checking in warmly to see if you had any questions or needed any help with your project? 😊 Whenever you're ready, feel free to drop a message! 🚀✨`;
+
+          console.log(`⏰ [AUTO FOLLOW-UP] Sending polite nudge to ${chat.name || chatId}...`);
+
+          try {
+            await currentSock.sendMessage(chatId, { text: followUpText });
+
+            chat.followUpCount = (chat.followUpCount || 0) + 1;
+            chat.lastFollowUp = now;
+            chat.lastInteraction = now;
+            chat.messages.push({
+              role: "assistant",
+              text: followUpText,
+              timestamp: now,
+            });
+
+            saveAllChatHistory(allData);
+          } catch (sendErr) {
+            console.warn(`Could not send follow-up to ${chatId}:`, sendErr.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("⚠️ Follow-up engine error:", err.message);
+    }
+  }, 30 * 60 * 1000); // Run every 30 minutes
 }
 
 // ------------------------------------------------------------
@@ -450,12 +636,8 @@ async function startBot() {
       console.log("✅ Connected to WhatsApp! ShubDeep Labs AI Agent is LIVE.");
       console.log("===================================================\n");
 
-      const sessionStr = exportSessionString();
-      if (sessionStr && !process.env.SESSION_DATA) {
-        console.log("💡 [SESSION BACKUP] To permanently prevent having to scan QR codes across redeploys, add this to your Render / Cloud Environment Variables:\n");
-        console.log(`SESSION_DATA=${sessionStr}\n`);
-        console.log("===================================================\n");
-      }
+      // Start automatic follow-up background engine
+      startFollowUpEngine();
     }
   });
 
