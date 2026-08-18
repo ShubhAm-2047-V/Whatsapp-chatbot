@@ -373,20 +373,47 @@ Respond ONLY with valid JSON:
       lastActiveClientChatId = parsed.matchedChatId;
 
       // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
-      if (parsed.shouldAutoDispatch && sock && parsed.proposedMessage) {
-        await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
-        appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
-        console.log(`🚀 [AUTO DISPATCHED TO CLIENT] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
+      if (parsed.shouldAutoDispatch && sock) {
+        let isPdf = /pdf/i.test(userMessage);
+        if (isPdf) {
+          try {
+            const pdfBuffer = await generateQuotationPDF({
+              clientName: parsed.clientName,
+              projectType: "Gold & Jewellery E-Commerce Platform & Real-Time Rates Engine",
+              priceRange: "₹13,000 (Approved)",
+              timeline: "2–3 Weeks",
+            });
+            await sock.sendMessage(parsed.matchedChatId, {
+              document: pdfBuffer,
+              mimetype: "application/pdf",
+              fileName: `ShubDeep_Labs_Proposal_${parsed.clientName.replace(/\s+/g, "_")}.pdf`,
+              caption: `Here is your official ShubDeep Labs Project Proposal & Agreement PDF! 📄✨\n\n• **Approved Investment:** ₹13,000\n• **Booking Advance (50%):** ₹6,500\n• **Delivery Timeline:** 2–3 Weeks\n• **Source Code:** 100% Full Ownership\n\nShubham will reach out shortly to finalize your kickoff! 🚀`,
+            });
+            console.log(`📄 [PDF PROPOSAL DISPATCHED] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
+          } catch (pdfErr) {
+            console.warn("Could not generate/send PDF:", pdfErr.message);
+          }
+        }
+
+        if (parsed.proposedMessage && !isPdf) {
+          await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
+          appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
+          console.log(`🚀 [AUTO DISPATCHED TO CLIENT] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
+        }
+
+        // Find client's email from chat memory
+        const clientChatHistory = allData[parsed.matchedChatId]?.messages || [];
+        const emailMatch = clientChatHistory.map(m => m.text).join(" ").match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/i);
+        const clientEmail = emailMatch ? emailMatch[1] : (allData[parsed.matchedChatId]?.email || "dvernekar59@gmail.com");
 
         return (
-`🚀 *[${(parsed.actionTitle || 'MESSAGE').toUpperCase()} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* ✨
+`🚀 *[${isPdf ? 'OFFICIAL PROPOSAL & TERMS PDF' : (parsed.actionTitle || 'MESSAGE').toUpperCase()} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* 📄✨
 
 👤 *Client:* ${parsed.clientName} (+${parsed.matchedChatId.split("@")[0]})
+📧 *Client's Email:* \`${clientEmail}\`
+${isPdf ? `📄 *Document Sent:* \`ShubDeep_Labs_Proposal_${parsed.clientName.replace(/\s+/g, "_")}.pdf\`` : `💬 *Message:* "${parsed.proposedMessage}"`}
 
-💬 *Message Dispatched to Client:*
-"${parsed.proposedMessage}"
-
-_The client has received this message in their WhatsApp chat!_ 🤝`
+_The client has received this directly in her WhatsApp chat!_ 🤝`
         );
       }
 
@@ -1131,11 +1158,26 @@ async function processBatchedMessages(chatId, sock) {
       if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
     } catch (e) {}
 
-    // 4. Special Dynamic Actions: UPI Payment QR or PDF Proposal
-    const isPaymentRequest = /pay|payment|upi|qr|scanner|advance|deposit|google pay|phonepe|paytm/i.test(cleanLower);
-    const isProposalPDFRequest = /pdf quote|proposal pdf|send pdf|official quotation|download proposal/i.test(cleanLower);
+    // 4. Special Dynamic Actions: Payment Confirmation, UPI Payment QR, or PDF Proposal
+    const isPaymentCompleted = /payment (?:is )?(?:done|completed|sent|transferred|successful|hogaya|zala|succesful)|(?:i have|maine) (?:paid|done payment|sent money)|screenshot|paisa pathavla|transaction (?:id|done|complete)|done yarr|payment done/i.test(cleanLower);
+    const isPaymentRequest = !isPaymentCompleted && /(?:get|send|share|give|want|show|need|kiti)?\s*(?:payment|upi|qr|scanner|barcode|deposit|google pay|phonepe|paytm|advance|how to pay)/i.test(cleanLower);
+    const isProposalPDFRequest = /(?:send|give|share|want|need|get)?\s*(?:in\s+)?pdf(?:\s+form|\s+format|\s+copy)?|download (?:pdf|proposal|agreement)|proposal pdf|quotation pdf/i.test(cleanLower);
 
     if (!activeSock) return;
+
+    if (isPaymentCompleted) {
+      console.log(`🎉 [PAYMENT CONFIRMATION RECEIVED] From ${senderName}`);
+      const paymentDoneReply = `Thank you so much, ${senderName.split(" ")[0]}! 🎉✨ We have received your payment confirmation!\n\nI have notified our founder Shubham Vernekar (+91 90288 33275) to verify the transaction in our records. He is preparing your official booking receipt, onboarding roadmap, and kickoff details right now! 🚀🤝\n\nWelcome to ShubDeep Labs — we are thrilled to build your project! 💎✨`;
+      
+      await activeSock.sendMessage(chatId, { text: paymentDoneReply });
+      appendToChatMemory(chatId, "user", combinedText, senderName, true);
+      appendToChatMemory(chatId, "assistant", paymentDoneReply, senderName, true);
+
+      // Send High-Priority Instant Alert to Shubham
+      const alertMsg = `🚨 *[CRITICAL: PAYMENT CONFIRMATION FROM CLIENT]* 🚨\n\n👤 *Client:* ${senderName} (+${chatId.split("@")[0]})\n💬 *Client Message:* "${combinedText}"\n\n👉 *Action Required:* Please verify your UPI/bank account and send the official receipt/kickoff message to ${senderName.split(" ")[0]}! 🚀`;
+      await activeSock.sendMessage(OWNER_JID, { text: alertMsg });
+      return;
+    }
 
     if (isPaymentRequest) {
       console.log(`💳 [PAYMENT QR TRIGGERED] Generating UPI QR for ${senderName}...`);
@@ -1154,6 +1196,7 @@ You can scan this QR code to pay securely via **Google Pay / PhonePe / Paytm / B
 👤 *Payee:* Shubham Vernekar
 📱 *UPI / Phone:* ${OWNER_PHONE}
 🏦 *UPI ID:* \`9028833275@ybl\`
+💰 *50% Advance:* ₹6,500 (Project Kickoff)
 
 Once completed, please share the transaction screenshot here to confirm your project kickoff! 🚀🤝`;
 
@@ -1173,18 +1216,21 @@ Once completed, please share the transaction screenshot here to confirm your pro
     if (isProposalPDFRequest) {
       console.log(`📄 [PDF PROPOSAL TRIGGERED] Generating quotation PDF for ${senderName}...`);
       try {
+        const approvedPrice = memory.approvedQuote || "₹13,000";
         const pdfBuffer = await generateQuotationPDF({
           clientName: memory.name || senderName,
-          projectType: "Custom Full-Stack Web / E-Commerce Solution",
-          priceRange: "₹9,999 – ₹14,999 (Estimated)",
+          projectType: "Gold & Jewellery E-Commerce Platform & Real-Time Rates Engine",
+          priceRange: approvedPrice,
           timeline: "2–3 Weeks",
         });
+
+        const caption = `Here is your official ShubDeep Labs Project Proposal & Agreement PDF! 📄✨\n\n• **Approved Investment:** ${approvedPrice}\n• **Booking Advance (50%):** ₹6,500\n• **Delivery Timeline:** 2–3 Weeks\n• **Source Code:** 100% Full Ownership\n\nShubham is at your service if you have any questions! 🚀`;
 
         await activeSock.sendMessage(chatId, {
           document: pdfBuffer,
           mimetype: "application/pdf",
           fileName: `ShubDeep_Labs_Proposal_${(memory.name || senderName).replace(/\s+/g, "_")}.pdf`,
-          caption: `Here is your official project estimate proposal PDF! 📄✨ Let us know your thoughts or connect directly with Shubham (${OWNER_PHONE}) to finalize! 🚀`,
+          caption,
         });
 
         appendToChatMemory(chatId, "user", combinedText, senderName, true);
