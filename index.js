@@ -167,9 +167,76 @@ function isOutsideBusinessHours() {
 }
 
 // ------------------------------------------------------------
+//  INTELLIGENT PROJECT REQUIREMENT EXTRACTOR
+// ------------------------------------------------------------
+async function extractProjectRequirement(history = [], currentText = "") {
+  const userMessages = history.filter((h) => h.role === "user").map((h) => h.text);
+  if (currentText) userMessages.push(currentText);
+
+  if (userMessages.length === 0) return currentText || "General Software Inquiry";
+
+  const allUserText = userMessages.join(" | ");
+
+  // Fast pattern recognition
+  if (/gold|jewel|ornament/i.test(allUserText)) {
+    return "Gold / Jewelry E-Commerce Website (Live rates, Cart, Payment Gateway)";
+  }
+  if (/hospital|clinic|doctor|patient|opd/i.test(allUserText)) {
+    return "Hospital / Clinic Management Core Desk";
+  }
+  if (/face|biometric|attendance/i.test(allUserText)) {
+    return "Face Recognition Biometric Attendance System";
+  }
+  if (/chat\s*bot|ai\s*bot|agent|whatsapp bot/i.test(allUserText)) {
+    return "Custom 24/7 AI WhatsApp / Web Support Agent";
+  }
+  if (/mobile app|android|flutter|ios/i.test(allUserText)) {
+    return "Mobile App Development (Flutter / Android / iOS)";
+  }
+  if (/e-commerce|ecommerce|store|online shop|shopping/i.test(allUserText)) {
+    return "E-Commerce Online Store with Payment Gateway";
+  }
+  if (/btech|diploma|college|project|mca|bca|academic|thesis|final year/i.test(allUserText)) {
+    return "Academic / College Software Engineering Project";
+  }
+  if (/portfolio|personal website/i.test(allUserText)) {
+    return "Personal Portfolio Website";
+  }
+  if (/website|landing page|web app|saas/i.test(allUserText)) {
+    return "Custom Web Application / Business Landing Page";
+  }
+
+  // Ask Gemini for a crisp 1-line requirement title
+  const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
+  if (apiKey) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [{ text: `Based on these customer inquiries: "${allUserText}", summarize what project the customer wants to build in 4 to 8 words (e.g. "Gold E-Commerce Website with Live Rates"). Return ONLY the short title.` }]
+          }],
+          generationConfig: { maxOutputTokens: 30, temperature: 0.1 }
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (summary) return summary.replace(/["\n]/g, "");
+      }
+    } catch (e) {}
+  }
+
+  return currentText;
+}
+
+// ------------------------------------------------------------
 //  INSTANT OWNER NOTIFICATION DISPATCHER (WhatsApp Alert)
 // ------------------------------------------------------------
-async function notifyOwner(clientName, chatId, projectSummary, latestMsg, priority = "HOT") {
+async function notifyOwner(clientName, chatId, projectRequirement, latestMsg, priority = "HOT") {
   if (!currentSock) return;
   try {
     const cleanPhone = chatId.split("@")[0];
@@ -178,7 +245,7 @@ async function notifyOwner(clientName, chatId, projectSummary, latestMsg, priori
 
 👤 *Client:* ${clientName || "New Client"}
 📱 *WhatsApp:* +${cleanPhone}
-💡 *Inquiry:* ${projectSummary}
+💡 *Project Requirement:* ${projectRequirement}
 💬 *Latest Message:* "${latestMsg}"
 ⏰ *Time:* ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: '2-digit', minute: '2-digit' })}
 
@@ -516,7 +583,8 @@ async function processBatchedMessages(chatId, sock) {
 
       // Dispatch real-time WhatsApp alert directly to Shubham Vernekar
       if (chatId !== OWNER_JID) {
-        notifyOwner(senderName, chatId, combinedText, combinedText, classification.priority || "HOT");
+        const projectRequirement = await extractProjectRequirement(history, combinedText);
+        notifyOwner(senderName, chatId, projectRequirement, combinedText, classification.priority || "HOT");
       }
     }
 
