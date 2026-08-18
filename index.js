@@ -42,31 +42,43 @@ const messageQueue = new Map(); // chatId -> { timer, messages: [], mediaItems: 
 let currentSock = null;
 let isReconnecting = false;
 
-// Filter noisy internal libsignal session debug logs
-const originalConsoleLog = console.log;
-console.log = (...args) => {
-  if (typeof args[0] === "string" && (
-    args[0].startsWith("Closing session") ||
-    args[0].startsWith("Closing open session") ||
-    args[0].startsWith("Session error") ||
-    args[0].startsWith("Failed to decrypt")
-  )) {
-    return;
+// Filter noisy internal libsignal session debug logs (console.log, console.info, console.warn, console.error)
+function isNoisyLog(arg) {
+  if (typeof arg === "string") {
+    return (
+      arg.startsWith("Closing session") ||
+      arg.startsWith("Closing open session") ||
+      arg.startsWith("Opening session") ||
+      arg.startsWith("Session error") ||
+      arg.startsWith("Failed to decrypt") ||
+      arg.startsWith("Session already")
+    );
   }
-  originalConsoleLog.apply(console, args);
+  return false;
+}
+
+const origLog = console.log;
+console.log = (...args) => {
+  if (isNoisyLog(args[0])) return;
+  origLog.apply(console, args);
 };
 
-const originalConsoleError = console.error;
+const origInfo = console.info;
+console.info = (...args) => {
+  if (isNoisyLog(args[0])) return;
+  origInfo.apply(console, args);
+};
+
+const origWarn = console.warn;
+console.warn = (...args) => {
+  if (isNoisyLog(args[0])) return;
+  origWarn.apply(console, args);
+};
+
+const origError = console.error;
 console.error = (...args) => {
-  if (typeof args[0] === "string" && (
-    args[0].startsWith("Closing session") ||
-    args[0].startsWith("Closing open session") ||
-    args[0].startsWith("Session error") ||
-    args[0].startsWith("Failed to decrypt")
-  )) {
-    return;
-  }
-  originalConsoleError.apply(console, args);
+  if (isNoisyLog(args[0])) return;
+  origError.apply(console, args);
 };
 
 // Global process error handlers
@@ -647,24 +659,39 @@ async function processBatchedMessages(chatId, sock) {
     const activeSock = currentSock || sock;
 
     // 0. Admin Commands & Takeover Mode
-    if (chatId === OWNER_JID || cleanCmd.startsWith("#")) {
+    const targetJid = (chatId && chatId.endsWith("@lid")) ? OWNER_JID : chatId;
+
+    if (chatId === OWNER_JID || (chatId && chatId.endsWith("@lid")) || cleanCmd.startsWith("#")) {
       if (cleanCmd === "#stats" || cleanCmd === "#leads") {
         const allData = loadAllChatHistory();
         const total = Object.keys(allData).length;
         const businessChats = Object.values(allData).filter((c) => c.isBusinessChat).length;
         const hotLeads = Object.values(allData).filter((c) => c.priority === "HOT").length;
         const statsReply = `📊 *[SHUBDEEP LABS AI STATS]* 📊\n\n• Total Active Chats: *${total}*\n• Business Inquiries: *${businessChats}*\n• Hot Leads: *${hotLeads}*\n• AI Engine: *Active & Online* ✅`;
-        if (activeSock) await activeSock.sendMessage(chatId, { text: statsReply });
+        
+        if (activeSock) {
+          await activeSock.sendMessage(targetJid, { text: statsReply });
+          if (chatId && targetJid !== chatId) {
+            try { await activeSock.sendMessage(chatId, { text: statsReply }); } catch (e) {}
+          }
+        }
+        console.log(`📊 [ADMIN STATS DISPATCHED] Sent to ${targetJid}`);
         return;
       }
       if (cleanCmd === "#pause") {
         pausedChats.add(chatId);
-        if (activeSock) await activeSock.sendMessage(chatId, { text: "⏸️ *AI Bot paused for this chat.* You can now chat directly. Send `#resume` anytime to turn AI back on." });
+        if (activeSock) {
+          await activeSock.sendMessage(targetJid, { text: "⏸️ *AI Bot paused for this chat.* You can now chat directly. Send `#resume` anytime to turn AI back on." });
+        }
+        console.log(`⏸️ [PAUSED] AI Bot paused for ${chatId}`);
         return;
       }
       if (cleanCmd === "#resume") {
         pausedChats.delete(chatId);
-        if (activeSock) await activeSock.sendMessage(chatId, { text: "▶️ *AI Bot resumed for this chat.*" });
+        if (activeSock) {
+          await activeSock.sendMessage(targetJid, { text: "▶️ *AI Bot resumed for this chat.*" });
+        }
+        console.log(`▶️ [RESUMED] AI Bot resumed for ${chatId}`);
         return;
       }
       if (cleanCmd === "#help" || cleanCmd === "#commands") {
@@ -683,7 +710,13 @@ async function processBatchedMessages(chatId, sock) {
 • *"Voice Note"* — Auto transcribes & replies in Marathi/Hindi/English
 • *"Screenshot / Wireframe"* — Gemini Vision analyzes layout
 • *"Call Shubham / Contact Owner"* — Hot lead alert sent to your WhatsApp!`;
-        if (activeSock) await activeSock.sendMessage(chatId, { text: helpReply });
+        if (activeSock) {
+          await activeSock.sendMessage(targetJid, { text: helpReply });
+          if (chatId && targetJid !== chatId) {
+            try { await activeSock.sendMessage(chatId, { text: helpReply }); } catch (e) {}
+          }
+        }
+        console.log(`🛠️ [ADMIN HELP DISPATCHED] Sent to ${targetJid}`);
         return;
       }
     }
