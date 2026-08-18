@@ -315,18 +315,19 @@ ${JSON.stringify(knownClients, null, 2)}
 Owner's Command: "${userMessage}"
 
 Determine if Shubham is instructing you to:
-1. SEND A QUOTATION / REVISED PRICE (e.g. "quote Deepa 13000", "Send quotation of 13000 to her")
-2. SEND RULES, TERMS & CONDITIONS / ONBOARDING (e.g. "Then send the rules and conditions to her", "Give her the terms and conditions", "Send rules to Deepa")
-3. SEND CUSTOM MESSAGE / FOLLOW-UP TO CLIENT
+1. CONFIRM PAYMENT & SEND AGREEMENT / RECEIPT PDF (e.g. "I have got the payment so generate the pdf and send her", "Payment received send pdf to Deepa", "Got advance send agreement")
+2. SEND A QUOTATION / REVISED PRICE (e.g. "quote Deepa 13000", "Send quotation of 13000 to her")
+3. SEND RULES, TERMS & CONDITIONS / ONBOARDING (e.g. "Then send the rules and conditions to her", "Give her the terms and conditions", "Send rules to Deepa")
+4. SEND CUSTOM MESSAGE / FOLLOW-UP TO CLIENT
 
 Respond ONLY with valid JSON:
 {
   "isActionMatched": boolean,
   "shouldAutoDispatch": boolean,
-  "actionTitle": "Short title (e.g. Project Terms & Onboarding Guidelines / Revised Quotation)",
+  "actionTitle": "Short title (e.g. Payment Confirmed & Project Agreement / Project Terms & Onboarding Guidelines / Revised Quotation)",
   "matchedChatId": "exact chatId string from known clients",
   "clientName": "Client Name",
-  "proposedMessage": "Warm, highly professional WhatsApp message for the client in their language explaining the terms (50% advance booking ₹6,500, 2-3 weeks delivery, 100% full source code ownership, 30 days support) or quotation."
+  "proposedMessage": "Warm, highly professional WhatsApp message for the client in their language confirming payment or explaining the terms/quotation."
 }`;
 
   try {
@@ -342,13 +343,23 @@ Respond ONLY with valid JSON:
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     let parsed = cleanAndParseJson(raw);
 
-    // Fallback: match keywords like "rules", "conditions", "terms", "deepa"
+    // Fallback: match keywords like "payment received", "got the payment", "rules", "conditions", "terms", "deepa"
     if (!parsed || !parsed.matchedChatId) {
+      const isPaymentReceivedCmd = /got (?:the )?payment|payment (?:is )?received|payment mila|paisa aala|confirm payment/i.test(userMessage);
       const isRulesIntent = /rules|conditions|terms|onboarding/i.test(userMessage);
       const isQuoteIntent = /quotation|quote|\d{4,5}/i.test(userMessage);
       const matched = knownClients.find(c => /deepa/i.test(c.name)) || knownClients[0];
 
-      if (matched && isRulesIntent) {
+      if (matched && isPaymentReceivedCmd) {
+        parsed = {
+          isActionMatched: true,
+          shouldAutoDispatch: true,
+          actionTitle: "Payment Confirmed & Project Agreement",
+          matchedChatId: matched.chatId,
+          clientName: matched.name,
+          proposedMessage: `🎉 Namaste ${matched.name.split(" ")[0]}! We have verified and confirmed your ₹6,500 advance payment! 💰✨ Attached is your official ShubDeep Labs Project Proposal & Signed Agreement PDF. Our development & UI design team is officially kicking off your Gold & Jewellery E-Commerce website today! 🚀💎`
+        };
+      } else if (matched && isRulesIntent) {
         parsed = {
           isActionMatched: true,
           shouldAutoDispatch: true,
@@ -372,24 +383,35 @@ Respond ONLY with valid JSON:
     if (parsed && (parsed.isActionMatched || parsed.isQuoteOverride) && parsed.matchedChatId) {
       lastActiveClientChatId = parsed.matchedChatId;
 
+      // Update CRM records with Deal Won & Payment Confirmed
+      if (/payment|advance/i.test(userMessage)) {
+        if (allData[parsed.matchedChatId]) {
+          allData[parsed.matchedChatId].dealStatus = "WON";
+          allData[parsed.matchedChatId].paymentStatus = "ADVANCE_CONFIRMED";
+          saveAllChatHistory(allData);
+        }
+      }
+
       // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
       if (parsed.shouldAutoDispatch && sock) {
-        let isPdf = /pdf/i.test(userMessage);
+        let isPdf = /pdf|document|receipt|agreement/i.test(userMessage) || /pdf/i.test(parsed.actionTitle || "");
         if (isPdf) {
           try {
             const pdfBuffer = await generateQuotationPDF({
               clientName: parsed.clientName,
               projectType: "Gold & Jewellery E-Commerce Platform & Real-Time Rates Engine",
-              priceRange: "₹13,000 (Approved)",
+              priceRange: "₹13,000 (Advance ₹6,500 Paid - Kickoff Confirmed)",
               timeline: "2–3 Weeks",
             });
+            const caption = parsed.proposedMessage || `🎉 Namaste ${parsed.clientName.split(" ")[0]}! Here is your official ShubDeep Labs Project Agreement & Proposal PDF! 📄✨ Development is starting today! 🚀`;
             await sock.sendMessage(parsed.matchedChatId, {
               document: pdfBuffer,
               mimetype: "application/pdf",
-              fileName: `ShubDeep_Labs_Proposal_${parsed.clientName.replace(/\s+/g, "_")}.pdf`,
-              caption: `Here is your official ShubDeep Labs Project Proposal & Agreement PDF! 📄✨\n\n• **Approved Investment:** ₹13,000\n• **Booking Advance (50%):** ₹6,500\n• **Delivery Timeline:** 2–3 Weeks\n• **Source Code:** 100% Full Ownership\n\nShubham will reach out shortly to finalize your kickoff! 🚀`,
+              fileName: `ShubDeep_Labs_Agreement_${parsed.clientName.replace(/\s+/g, "_")}.pdf`,
+              caption,
             });
-            console.log(`📄 [PDF PROPOSAL DISPATCHED] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
+            appendToChatMemory(parsed.matchedChatId, "assistant", caption, parsed.clientName, true);
+            console.log(`📄 [PDF PROPOSAL / AGREEMENT DISPATCHED] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
           } catch (pdfErr) {
             console.warn("Could not generate/send PDF:", pdfErr.message);
           }
@@ -407,11 +429,12 @@ Respond ONLY with valid JSON:
         const clientEmail = emailMatch ? emailMatch[1] : (allData[parsed.matchedChatId]?.email || "dvernekar59@gmail.com");
 
         return (
-`🚀 *[${isPdf ? 'OFFICIAL PROPOSAL & TERMS PDF' : (parsed.actionTitle || 'MESSAGE').toUpperCase()} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* 📄✨
+`🚀 *[${isPdf ? 'OFFICIAL PROJECT AGREEMENT & RECEIPT PDF' : (parsed.actionTitle || 'MESSAGE').toUpperCase()} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* 📄✨
 
 👤 *Client:* ${parsed.clientName} (+${parsed.matchedChatId.split("@")[0]})
 📧 *Client's Email:* \`${clientEmail}\`
-${isPdf ? `📄 *Document Sent:* \`ShubDeep_Labs_Proposal_${parsed.clientName.replace(/\s+/g, "_")}.pdf\`` : `💬 *Message:* "${parsed.proposedMessage}"`}
+💰 *Status:* Advance Payment Verified & Project Kickoff Started!
+${isPdf ? `📄 *Document Sent:* \`ShubDeep_Labs_Agreement_${parsed.clientName.replace(/\s+/g, "_")}.pdf\`` : `💬 *Message:* "${parsed.proposedMessage}"`}
 
 _The client has received this directly in her WhatsApp chat!_ 🤝`
         );
