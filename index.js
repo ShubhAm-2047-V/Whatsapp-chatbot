@@ -5,8 +5,6 @@
 // ============================================================
 
 require("dotenv").config();
-const http = require("http");
-const https = require("https");
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -20,8 +18,6 @@ const businessInfo = require("./business-info");
 const { GEMINI_API_KEY, GEMINI_MODEL } = require("./config");
 
 // ---------- CONFIG ----------
-const PORT = process.env.PORT || 3000;
-const PUBLIC_APP_URL = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || "https://whatsapp-chatbot-1-jej3.onrender.com";
 const IGNORE_GROUPS = true; // set false if you also want the bot to reply in groups
 const FILTER_PERSONAL_MESSAGES = true; // true = skip casual friend/family chats, only answer business queries
 const MAX_HISTORY_TURNS = 12;
@@ -33,56 +29,7 @@ const messageQueue = new Map(); // chatId -> { timer, messages: [], senderName, 
 let currentSock = null;
 let isReconnecting = false;
 
-// ------------------------------------------------------------
-//  CLOUD HEALTH CHECK SERVER (For Render / Cloud 24/7 Hosting)
-// ------------------------------------------------------------
-http.createServer((req, res) => {
-  if (req.url === "/health" || req.url === "/ping") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ status: "alive", uptime: process.uptime(), timestamp: new Date().toISOString() }));
-  }
 
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(`
-    <html>
-      <head><title>ShubDeep Labs WhatsApp AI Bot</title></head>
-      <body style="font-family: sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
-        <div style="text-align: center; padding: 30px; background: #1e293b; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-          <h1 style="color: #34d399; margin-bottom: 10px;">⚡ ShubDeep Labs AI Agent</h1>
-          <p style="color: #94a3b8; font-size: 16px;">WhatsApp Bot is <strong>LIVE & RUNNING 24/7</strong> in the cloud! 🚀</p>
-        </div>
-      </body>
-    </html>
-  `);
-}).listen(PORT, () => {
-  console.log(`🌐 Cloud Health Check server listening on port ${PORT}`);
-  startSelfPing();
-});
-
-// ------------------------------------------------------------
-//  BUILT-IN SELF-PING KEEP-ALIVE (Prevents Server Sleep)
-// ------------------------------------------------------------
-function startSelfPing() {
-  if (!PUBLIC_APP_URL || PUBLIC_APP_URL.includes("localhost")) {
-    console.log("ℹ️ Self-ping disabled for local environment.");
-    return;
-  }
-
-  console.log(`🔄 Self-Ping keep-alive active for: ${PUBLIC_APP_URL} (Interval: 10 mins)`);
-
-  setInterval(() => {
-    try {
-      const client = PUBLIC_APP_URL.startsWith("https") ? https : http;
-      client.get(PUBLIC_APP_URL, (res) => {
-        console.log(`⏱️ [KEEP-ALIVE] Self-ping successful at ${new Date().toLocaleTimeString()} (Status: ${res.statusCode})`);
-      }).on("error", (err) => {
-        console.warn(`⚠️ [KEEP-ALIVE] Ping failed:`, err.message);
-      });
-    } catch (e) {
-      console.warn("⚠️ [KEEP-ALIVE] Error executing ping:", e.message);
-    }
-  }, 10 * 60 * 1000); // Ping every 10 minutes
-}
 
 // ------------------------------------------------------------
 //  AUTOMATIC LEAD CAPTURE SYSTEM
