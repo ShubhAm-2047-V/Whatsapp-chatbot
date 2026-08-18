@@ -297,6 +297,14 @@ function calculateHumanTypingTime(text) {
 
 // ------------------------------------------------------------
 //  PROCESS BUFFERED INCOMING MESSAGES (DEBOUNCED BATCHING)
+// Global process error handlers to prevent unexpected crashes
+process.on("uncaughtException", (err) => {
+  console.warn("⚠️ [RECOVERED] Uncaught Exception:", err.message);
+});
+process.on("unhandledRejection", (reason) => {
+  console.warn("⚠️ [RECOVERED] Unhandled Rejection:", reason?.message || reason);
+});
+
 // ------------------------------------------------------------
 async function processBatchedMessages(chatId, sock) {
   const queueData = messageQueue.get(chatId);
@@ -310,71 +318,83 @@ async function processBatchedMessages(chatId, sock) {
 
   console.log(`📩 Processing [${senderName} (${chatId})]: "${combinedText.replace(/\n/g, " ")}"`);
 
-  const history = chatHistory.get(chatId) || [];
-
-  // 1. Intent Classification Check
-  const classification = await classifyMessageIntent(combinedText, history);
-
-  if (!classification.isBusinessRelated) {
-    console.log(`⏩ [SKIPPED] Personal chat detected from ${senderName}: "${combinedText}" (Reason: ${classification.reason})`);
-    return; // Do NOT reply to personal chat
-  }
-
-  // If flagged as lead inquiry, save to CRM file
-  if (classification.isLead) {
-    saveLead({
-      name: senderName,
-      chatId,
-      inquiry: combinedText,
-    });
-  }
-
-  // 2. Mark as read (blue ticks)
   try {
-    if (lastMsgKey) await sock.readMessages([lastMsgKey]);
-  } catch (e) {}
+    const history = chatHistory.get(chatId) || [];
 
-  // 3. Human reading delay (1.0 - 2.0s)
-  const readingDelay = Math.min(Math.max(combinedText.length * 15, 1000), 2000);
-  await new Promise((r) => setTimeout(r, readingDelay));
+    // 1. Intent Classification Check
+    const classification = await classifyMessageIntent(combinedText, history);
 
-  // 4. Generate AI response from Gemini
-  let reply;
-  try {
-    reply = await askGemini(combinedText, history);
+    if (!classification.isBusinessRelated) {
+      console.log(`⏩ [SKIPPED] Personal chat detected from ${senderName}: "${combinedText}" (Reason: ${classification.reason})`);
+      return; // Do NOT reply to personal chat
+    }
+
+    // If flagged as lead inquiry, save to CRM file
+    if (classification.isLead) {
+      saveLead({
+        name: senderName,
+        chatId,
+        inquiry: combinedText,
+      });
+    }
+
+    // 2. Mark as read (blue ticks)
+    try {
+      const activeSock = currentSock || sock;
+      if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
+    } catch (e) {}
+
+    // 3. Human reading delay (1.0 - 2.0s)
+    const readingDelay = Math.min(Math.max(combinedText.length * 15, 1000), 2000);
+    await new Promise((r) => setTimeout(r, readingDelay));
+
+    // 4. Generate AI response from Gemini
+    let reply;
+    try {
+      reply = await askGemini(combinedText, history);
+    } catch (err) {
+      console.error("Gemini error:", err.message);
+      reply =
+        "Sorry, I had a quick technical hiccup! 😅 Please feel free to reach out directly to Shubham at +91 90288 33275 or shubdeeplabs@gmail.com. 🚀";
+    }
+
+    if (!reply) {
+      reply = "Hey there! 👋 Welcome to ShubDeep Labs! ✨ How can I help you with your project today? 😊";
+    }
+
+    // 5. Realistic Human Typing Simulation
+    try {
+      const activeSock = currentSock || sock;
+      if (activeSock) await activeSock.sendPresenceUpdate("composing", chatId);
+    } catch (e) {}
+
+    const typingDuration = calculateHumanTypingTime(reply);
+    await new Promise((r) => setTimeout(r, typingDuration));
+
+    try {
+      const activeSock = currentSock || sock;
+      if (activeSock) await activeSock.sendPresenceUpdate("paused", chatId);
+    } catch (e) {}
+
+    await new Promise((r) => setTimeout(r, 300 + Math.random() * 300));
+
+    // 6. Send the message with active socket & safety fallback
+    const activeSock = currentSock || sock;
+    if (activeSock) {
+      await activeSock.sendMessage(chatId, { text: reply });
+
+      // 7. Save conversation history
+      history.push({ role: "user", text: combinedText });
+      history.push({ role: "assistant", text: reply });
+      chatHistory.set(chatId, history.slice(-MAX_HISTORY_TURNS * 2));
+
+      console.log(`🤖 [REPLIED] To ${senderName}: "${reply.replace(/\n/g, " ")}"`);
+    } else {
+      console.warn(`⚠️ Could not send reply to ${senderName}: Socket is reconnecting.`);
+    }
   } catch (err) {
-    console.error("Gemini error:", err.message);
-    reply =
-      "Sorry, I had a quick technical hiccup! 😅 Please feel free to reach out directly to Shubham at +91 90288 33275 or shubdeeplabs@gmail.com. 🚀";
+    console.error(`⚠️ Error processing message for ${chatId}:`, err.message);
   }
-
-  if (!reply) {
-    reply = "Hey there! 👋 Welcome to ShubDeep Labs! ✨ How can I help you with your project today? 😊";
-  }
-
-  // 5. Realistic Human Typing Simulation
-  try {
-    await sock.sendPresenceUpdate("composing", chatId);
-  } catch (e) {}
-
-  const typingDuration = calculateHumanTypingTime(reply);
-  await new Promise((r) => setTimeout(r, typingDuration));
-
-  try {
-    await sock.sendPresenceUpdate("paused", chatId);
-  } catch (e) {}
-
-  await new Promise((r) => setTimeout(r, 300 + Math.random() * 300));
-
-  // 6. Send the message
-  await sock.sendMessage(chatId, { text: reply });
-
-  // 7. Save conversation history
-  history.push({ role: "user", text: combinedText });
-  history.push({ role: "assistant", text: reply });
-  chatHistory.set(chatId, history.slice(-MAX_HISTORY_TURNS * 2));
-
-  console.log(`🤖 [REPLIED] To ${senderName}: "${reply.replace(/\n/g, " ")}"`);
 }
 
 // ------------------------------------------------------------
