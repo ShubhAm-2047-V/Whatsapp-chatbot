@@ -91,6 +91,7 @@ process.on("unhandledRejection", (reason) => {
 
 // Admin state
 const pausedChats = new Set();
+const processedMsgKeys = new Set();
 
 // ------------------------------------------------------------
 //  DYNAMIC KNOWLEDGE BASE AUTO-LOADER (data/knowledge/)
@@ -184,11 +185,12 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
 
 // In-memory state for pending owner-approved quotes waiting for dispatch
 const pendingQuoteDispatches = new Map(); // OWNER_JID -> { targetChatId, clientName, messageText, revisedPrice }
+let lastActiveClientChatId = null;
 
 // ------------------------------------------------------------
 //  CLIENT-SPECIFIC QUOTE REVISION & BREAKDOWN ENGINE
 // ------------------------------------------------------------
-async function handleClientQuoteOverride(userMessage) {
+async function handleClientQuoteOverride(userMessage, history = [], sock = null) {
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
   if (!apiKey) return null;
 
@@ -205,18 +207,22 @@ async function handleClientQuoteOverride(userMessage) {
   if (knownClients.length === 0) return null;
 
   const prompt = `You are an AI Executive Sales Assistant for Shubham Vernekar (Founder of ShubDeep Labs).
-Shubham is sending a command to customize or revise a price quote for a SPECIFIC client based on their conversation history.
+Shubham is sending a command to customize, revise, or SEND a quotation to a client based on recent discussions.
+
+Recent Owner Discussion Context:
+${history.slice(-6).map((h) => `${h.role === "user" ? "Shubham" : "AI Assistant"}: ${h.text}`).join("\n")}
 
 Known Clients in CRM:
 ${JSON.stringify(knownClients, null, 2)}
 
 Owner's Message: "${userMessage}"
 
-Determine if Shubham is asking to quote or revise the price for one of the clients (e.g. "quote Deepa 13000 instead of 15000", "Deepa la 13000 quote kar", "revise Deepa's price to 13k", "quote client Deepa 13000").
+Determine if Shubham is asking to quote, revise price, or dispatch a message to a client (e.g. "quote Deepa 13000", "Get her the quotation of 13000 now", "send it to her", "Deepa la 13000 quote kar", "send her on whatsapp"). Note: If he says "her" or "him", check recent context to match the client!
 
-If YES, respond ONLY with valid JSON:
+Respond ONLY with valid JSON:
 {
-  "isQuoteOverride": true,
+  "isQuoteOverride": boolean,
+  "shouldAutoDispatch": boolean,
   "matchedChatId": "exact chatId string from known clients",
   "clientName": "Client Name",
   "revisedPrice": "e.g. ₹13,000",
@@ -227,11 +233,6 @@ If YES, respond ONLY with valid JSON:
     "Feature 3"
   ],
   "proposedMessage": "Warm, natural WhatsApp message for the client in their language explaining that Shubham has specially reviewed their requirements and approved this revised quote of ₹X for them."
-}
-
-If NO, respond ONLY with:
-{
-  "isQuoteOverride": false
 }`;
 
   try {
@@ -255,14 +256,35 @@ If NO, respond ONLY with:
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     const parsed = JSON.parse(raw);
 
-    if (parsed.isQuoteOverride && parsed.matchedChatId && parsed.revisedPrice) {
+    if (parsed.isQuoteOverride && parsed.matchedChatId) {
+      lastActiveClientChatId = parsed.matchedChatId;
+
       // Save revised quote to client's persistent memory
-      if (allData[parsed.matchedChatId]) {
+      if (allData[parsed.matchedChatId] && parsed.revisedPrice) {
         allData[parsed.matchedChatId].approvedQuote = parsed.revisedPrice;
         saveAllChatHistory(allData);
       }
 
-      // Store pending dispatch
+      // If Shubham instructed to send immediately -> DIRECTLY DISPATCH TO CLIENT ON WHATSAPP!
+      if (parsed.shouldAutoDispatch && sock && parsed.proposedMessage) {
+        await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
+        appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
+        console.log(`🚀 [AUTO DISPATCHED QUOTE] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
+
+        return (
+`🚀 *[QUOTATION OF ${parsed.revisedPrice || 'APPROVED RATE'} SENT DIRECTLY TO ${parsed.clientName.toUpperCase()} ON WHATSAPP]* ✨
+
+👤 *Client:* ${parsed.clientName} (+${parsed.matchedChatId.split("@")[0]})
+💡 *Project:* ${parsed.projectRequirement}
+
+💬 *Message Sent to Client:*
+"${parsed.proposedMessage}"
+
+_The client has received this message in their WhatsApp chat!_ 🤝`
+        );
+      }
+
+      // Otherwise store pending dispatch and show proposed message
       pendingQuoteDispatches.set(OWNER_JID, {
         targetChatId: parsed.matchedChatId,
         clientName: parsed.clientName,
@@ -278,7 +300,7 @@ If NO, respond ONLY with:
 
 👤 *Client:* ${parsed.clientName} (+${cleanPhone})
 💡 *Project:* ${parsed.projectRequirement}
-💰 *Approved Revised Quote:* *${parsed.revisedPrice}*
+💰 *Approved Revised Quote:* *${parsed.revisedPrice || "Custom Quote"}*
 
 📋 *Scope & Features Included:*
 ${bullets || "• Complete custom web application implementation & source code"}
@@ -969,16 +991,19 @@ async function processBatchedMessages(chatId, sock) {
         await activeSock.sendPresenceUpdate("composing", targetJid);
       } catch (e) {}
 
-      // A. Check if owner is confirming a pending quote dispatch (e.g. "Send", "Send to Deepa", "Yes")
+      // A. Check if owner is confirming a pending quote dispatch (e.g. "Send", "Send to Deepa", "Yes", "go and send it", "it is correct so send her", "send her on whatsapp")
       const pending = pendingQuoteDispatches.get(OWNER_JID);
-      if (pending && /^(send|yes|send it|send to|ok send|dispatch)/i.test(cleanCmd)) {
+      const isSendCmd = /^(send|yes|send it|send to|ok send|dispatch|it is correct|send her|go and send|send on whatsapp|correct|ha pathav|pathav)/i.test(cleanCmd) ||
+                        /send her|send it|go and send|send on whatsapp|correct so send/i.test(combinedText.toLowerCase());
+
+      if (pending && isSendCmd) {
         pendingQuoteDispatches.delete(OWNER_JID);
         try {
           await activeSock.sendMessage(pending.targetChatId, { text: pending.messageText });
           appendToChatMemory(pending.targetChatId, "assistant", pending.messageText, pending.clientName, true);
           console.log(`🚀 [DISPATCHED REVISED QUOTE] Sent to ${pending.clientName} (${pending.targetChatId})`);
           
-          const confirmMsg = `🚀 *Quotation Sent to ${pending.clientName}!* ✨\n\nI have dispatched your approved quote of *${pending.revisedPrice}* directly to their WhatsApp chat!`;
+          const confirmMsg = `🚀 *Quotation of ${pending.revisedPrice || 'Approved Rate'} Sent Directly to ${pending.clientName} on WhatsApp!* ✨\n\n💬 *Message Sent:* \n"${pending.messageText}"`;
           await activeSock.sendMessage(targetJid, { text: confirmMsg });
           return;
         } catch (sendErr) {
@@ -988,7 +1013,7 @@ async function processBatchedMessages(chatId, sock) {
       }
 
       // B. Check if owner is asking to customize/revise a quote for a specific client
-      const quoteOverrideReply = await handleClientQuoteOverride(combinedText);
+      const quoteOverrideReply = await handleClientQuoteOverride(combinedText, history, activeSock);
       let ownerReply = quoteOverrideReply;
 
       // C. Check if owner is teaching or customizing the bot
@@ -1337,6 +1362,14 @@ async function startBot() {
     for (const msg of messages) {
       try {
         if (!msg.message) continue;
+
+        const msgId = msg.key.id;
+        if (processedMsgKeys.has(msgId)) continue;
+        processedMsgKeys.add(msgId);
+        if (processedMsgKeys.size > 3000) {
+          const firstKey = processedMsgKeys.values().next().value;
+          processedMsgKeys.delete(firstKey);
+        }
 
         // Extract text content
         const text =
