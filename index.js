@@ -42,6 +42,33 @@ const messageQueue = new Map(); // chatId -> { timer, messages: [], mediaItems: 
 let currentSock = null;
 let isReconnecting = false;
 
+// Filter noisy internal libsignal session debug logs
+const originalConsoleLog = console.log;
+console.log = (...args) => {
+  if (typeof args[0] === "string" && (
+    args[0].startsWith("Closing session") ||
+    args[0].startsWith("Closing open session") ||
+    args[0].startsWith("Session error") ||
+    args[0].startsWith("Failed to decrypt")
+  )) {
+    return;
+  }
+  originalConsoleLog.apply(console, args);
+};
+
+const originalConsoleError = console.error;
+console.error = (...args) => {
+  if (typeof args[0] === "string" && (
+    args[0].startsWith("Closing session") ||
+    args[0].startsWith("Closing open session") ||
+    args[0].startsWith("Session error") ||
+    args[0].startsWith("Failed to decrypt")
+  )) {
+    return;
+  }
+  originalConsoleError.apply(console, args);
+};
+
 // Global process error handlers
 process.on("uncaughtException", (err) => {
   console.warn("⚠️ [RECOVERED] Uncaught Exception:", err.message);
@@ -49,6 +76,9 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
   console.warn("⚠️ [RECOVERED] Unhandled Rejection:", reason?.message || reason);
 });
+
+// Admin state
+const pausedChats = new Set();
 
 // ------------------------------------------------------------
 //  DYNAMIC KNOWLEDGE BASE AUTO-LOADER (data/knowledge/)
@@ -613,6 +643,55 @@ async function processBatchedMessages(chatId, sock) {
     const memory = getChatMemory(chatId);
     const history = memory.messages || [];
     const timeGap = formatTimeGap(memory.lastInteraction);
+    const cleanCmd = combinedText.trim().toLowerCase();
+    const activeSock = currentSock || sock;
+
+    // 0. Admin Commands & Takeover Mode
+    if (chatId === OWNER_JID || cleanCmd.startsWith("#")) {
+      if (cleanCmd === "#stats" || cleanCmd === "#leads") {
+        const allData = loadAllChatHistory();
+        const total = Object.keys(allData).length;
+        const businessChats = Object.values(allData).filter((c) => c.isBusinessChat).length;
+        const hotLeads = Object.values(allData).filter((c) => c.priority === "HOT").length;
+        const statsReply = `📊 *[SHUBDEEP LABS AI STATS]* 📊\n\n• Total Active Chats: *${total}*\n• Business Inquiries: *${businessChats}*\n• Hot Leads: *${hotLeads}*\n• AI Engine: *Active & Online* ✅`;
+        if (activeSock) await activeSock.sendMessage(chatId, { text: statsReply });
+        return;
+      }
+      if (cleanCmd === "#pause") {
+        pausedChats.add(chatId);
+        if (activeSock) await activeSock.sendMessage(chatId, { text: "⏸️ *AI Bot paused for this chat.* You can now chat directly. Send `#resume` anytime to turn AI back on." });
+        return;
+      }
+      if (cleanCmd === "#resume") {
+        pausedChats.delete(chatId);
+        if (activeSock) await activeSock.sendMessage(chatId, { text: "▶️ *AI Bot resumed for this chat.*" });
+        return;
+      }
+      if (cleanCmd === "#help" || cleanCmd === "#commands") {
+        const helpReply = 
+`🛠️ *[AVAILABLE BOT COMMANDS]* 🛠️
+
+👑 *Admin Commands (You can send):*
+• \`#stats\` or \`#leads\` — View total active leads & stats
+• \`#pause\` — Pause AI bot for this customer chat
+• \`#resume\` — Resume AI bot for this customer chat
+
+💬 *Customer Triggers (What clients can ask):*
+• *"Pricing / Cost / Quote"* — Ballpark estimates + Founder intro
+• *"Send PDF / Proposal"* — Auto-generates branded PDF Proposal
+• *"Payment / UPI / QR Scanner"* — Sends UPI QR Code + Owner Phone
+• *"Voice Note"* — Auto transcribes & replies in Marathi/Hindi/English
+• *"Screenshot / Wireframe"* — Gemini Vision analyzes layout
+• *"Call Shubham / Contact Owner"* — Hot lead alert sent to your WhatsApp!`;
+        if (activeSock) await activeSock.sendMessage(chatId, { text: helpReply });
+        return;
+      }
+    }
+
+    if (pausedChats.has(chatId)) {
+      console.log(`⏸️ [PAUSED] AI Bot is paused for ${senderName} (${chatId})`);
+      return;
+    }
 
     // 1. Intent Classification Check
     const classification = await classifyMessageIntent(combinedText, history);
@@ -644,7 +723,6 @@ async function processBatchedMessages(chatId, sock) {
 
     // 3. Mark as read immediately
     try {
-      const activeSock = currentSock || sock;
       if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
     } catch (e) {}
 
@@ -652,7 +730,6 @@ async function processBatchedMessages(chatId, sock) {
     const isPaymentRequest = /pay|payment|upi|qr|scanner|advance|deposit|google pay|phonepe|paytm/i.test(cleanLower);
     const isProposalPDFRequest = /pdf quote|proposal pdf|send pdf|official quotation|download proposal/i.test(cleanLower);
 
-    const activeSock = currentSock || sock;
     if (!activeSock) return;
 
     if (isPaymentRequest) {
