@@ -17,7 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const qrcode = require("qrcode-terminal");
 const businessInfo = require("./business-info");
-const { GEMINI_API_KEY, GEMINI_MODEL } = require("./config");
+const { GEMINI_API_KEY, GEMINI_API_KEYS, GEMINI_MODEL } = require("./config");
 const { generateQuotationPDF } = require("./utils/pdfGenerator");
 const { generatePaymentQR } = require("./utils/paymentQR");
 
