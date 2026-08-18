@@ -665,6 +665,34 @@ ${chatSummary}
 }
 
 // ------------------------------------------------------------
+//  DEAL CLOSED & PAYMENT CONFIRMED NOTIFICATION DISPATCHER
+// ------------------------------------------------------------
+async function notifyPaymentReceived(clientName, chatId, projectRequirement, latestMsg, clientEmail = null, approvedPrice = "₹13,000") {
+  if (!currentSock) return;
+  try {
+    const cleanPhone = chatId.split("@")[0];
+    const alertMessage = 
+`🎉 *[DEAL CLOSED & PAYMENT CONFIRMED!]* 💰✨
+
+👤 *Client:* ${clientName || "Valued Client"}
+📱 *WhatsApp:* +${cleanPhone}
+${clientEmail ? `📧 *Email:* \`${clientEmail}\`\n` : ""}💡 *Project:* ${projectRequirement}
+💰 *Total Deal Value:* ${approvedPrice}
+💳 *Advance Received:* ₹6,500 (50% Booking)
+
+💬 *Client Message:* "${latestMsg}"
+⏰ *Time:* ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: '2-digit', minute: '2-digit' })}
+
+👉 *Action Required:* Please verify your UPI/bank (9028833275@ybl) and send the official receipt & kickoff confirmation to ${clientName.split(" ")[0]}! 🚀🤝`;
+
+    await currentSock.sendMessage(OWNER_JID, { text: alertMessage });
+    console.log(`🎉 [PAYMENT NOTIFICATION SENT TO OWNER] for ${clientName}`);
+  } catch (err) {
+    console.warn("⚠️ Could not notify owner of payment:", err.message);
+  }
+}
+
+// ------------------------------------------------------------
 //  AUTOMATIC LEAD CAPTURE & CRM STORAGE
 // ------------------------------------------------------------
 function saveLead(leadData) {
@@ -1133,8 +1161,71 @@ async function processBatchedMessages(chatId, sock) {
       return;
     }
 
-    // 2. Lead Capture & Instant Owner Alert
     const cleanLower = combinedText.toLowerCase();
+
+    // 2. Mark message as read immediately
+    try {
+      if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
+    } catch (e) {}
+
+    // 3. Dynamic Action A: Payment Confirmation & Deal Won
+    const isPaymentCompleted = /payment (?:is )?(?:done|completed|sent|transferred|successful|hogaya|zala|succesful)|(?:i have|maine) (?:paid|done payment|sent money)|screenshot|paisa pathavla|transaction (?:id|done|complete)|done yarr|payment done/i.test(cleanLower);
+    const isPaymentRequest = !isPaymentCompleted && /(?:get|send|share|give|want|show|need|kiti)?\s*(?:payment|upi|qr|scanner|barcode|deposit|google pay|phonepe|paytm|advance|how to pay)/i.test(cleanLower);
+    const isProposalPDFRequest = /(?:send|give|share|want|need|get)?\s*(?:in\s+)?pdf(?:\s+form|\s+format|\s+copy)?|download (?:pdf|proposal|agreement)|proposal pdf|quotation pdf/i.test(cleanLower);
+
+    if (isPaymentCompleted) {
+      console.log(`🎉 [PAYMENT CONFIRMATION RECEIVED] From ${senderName}`);
+      
+      // Update CRM records with Deal Won status
+      const allData = loadAllChatHistory();
+      if (allData[chatId]) {
+        allData[chatId].dealStatus = "WON";
+        allData[chatId].paymentStatus = "ADVANCE_RECEIVED";
+        allData[chatId].priority = "HOT";
+        saveAllChatHistory(allData);
+      }
+
+      const clientChatHistory = allData[chatId]?.messages || [];
+      const emailMatch = clientChatHistory.map(m => m.text).join(" ").match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/i);
+      const clientEmail = emailMatch ? emailMatch[1] : (allData[chatId]?.email || null);
+      const projectReq = await extractProjectRequirement(history, combinedText);
+      const approvedPrice = memory.approvedQuote || "₹13,000";
+
+      const paymentDoneReply = `Thank you so much, ${senderName.split(" ")[0]}! 🎉✨ We have received your payment confirmation!\n\nI have notified our founder Shubham Vernekar (+91 90288 33275) to verify the transaction in our bank/UPI records. He is preparing your official booking receipt, onboarding roadmap, and kickoff details right now! 🚀🤝\n\nWelcome to ShubDeep Labs — we are thrilled to build your project! 💎✨`;
+      
+      await activeSock.sendMessage(chatId, { text: paymentDoneReply });
+      appendToChatMemory(chatId, "user", combinedText, senderName, true);
+      appendToChatMemory(chatId, "assistant", paymentDoneReply, senderName, true);
+
+      // If client ALSO requested PDF proposal / rules and conditions:
+      if (/pdf|rules|conditions|terms/i.test(cleanLower)) {
+        try {
+          const pdfBuffer = await generateQuotationPDF({
+            clientName: memory.name || senderName,
+            projectType: projectReq,
+            priceRange: approvedPrice,
+            timeline: "2–3 Weeks",
+          });
+
+          await activeSock.sendMessage(chatId, {
+            document: pdfBuffer,
+            mimetype: "application/pdf",
+            fileName: `ShubDeep_Labs_Proposal_${(memory.name || senderName).replace(/\s+/g, "_")}.pdf`,
+            caption: `Here is your official ShubDeep Labs Project Proposal & Agreement PDF! 📄✨\n\n• **Approved Investment:** ${approvedPrice}\n• **Booking Advance (50%):** ₹6,500\n• **Delivery Timeline:** 2–3 Weeks\n• **Source Code:** 100% Full Ownership\n\nShubham will share the receipt and kickoff roadmap shortly! 🚀`,
+          });
+          appendToChatMemory(chatId, "assistant", "Sent Official Project Proposal PDF", senderName, true);
+          console.log(`📄 [PDF PROPOSAL SENT] Delivered to ${senderName}`);
+        } catch (pdfErr) {
+          console.warn("Could not generate PDF upon payment completion:", pdfErr.message);
+        }
+      }
+
+      // Send Dedicated Deal Closed & Payment Confirmed Notification to Owner
+      await notifyPaymentReceived(senderName, chatId, projectReq, combinedText, clientEmail, approvedPrice);
+      return;
+    }
+
+    // 4. Lead Capture & General Owner Alert (Only for active inquiries, NOT closed deals)
     const isUrgentHandoff = /call|quickly|urgent|contact|shubham|meet|talk|phone|quote|proposal|price/i.test(cleanLower);
 
     if (classification.isLead || isUrgentHandoff) {
@@ -1151,32 +1242,6 @@ async function processBatchedMessages(chatId, sock) {
         const chatSummary = await generateChatSummary(history, combinedText);
         notifyOwner(senderName, chatId, projectRequirement, chatSummary, combinedText, classification.priority || "HOT");
       }
-    }
-
-    // 3. Mark as read immediately
-    try {
-      if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
-    } catch (e) {}
-
-    // 4. Special Dynamic Actions: Payment Confirmation, UPI Payment QR, or PDF Proposal
-    const isPaymentCompleted = /payment (?:is )?(?:done|completed|sent|transferred|successful|hogaya|zala|succesful)|(?:i have|maine) (?:paid|done payment|sent money)|screenshot|paisa pathavla|transaction (?:id|done|complete)|done yarr|payment done/i.test(cleanLower);
-    const isPaymentRequest = !isPaymentCompleted && /(?:get|send|share|give|want|show|need|kiti)?\s*(?:payment|upi|qr|scanner|barcode|deposit|google pay|phonepe|paytm|advance|how to pay)/i.test(cleanLower);
-    const isProposalPDFRequest = /(?:send|give|share|want|need|get)?\s*(?:in\s+)?pdf(?:\s+form|\s+format|\s+copy)?|download (?:pdf|proposal|agreement)|proposal pdf|quotation pdf/i.test(cleanLower);
-
-    if (!activeSock) return;
-
-    if (isPaymentCompleted) {
-      console.log(`🎉 [PAYMENT CONFIRMATION RECEIVED] From ${senderName}`);
-      const paymentDoneReply = `Thank you so much, ${senderName.split(" ")[0]}! 🎉✨ We have received your payment confirmation!\n\nI have notified our founder Shubham Vernekar (+91 90288 33275) to verify the transaction in our records. He is preparing your official booking receipt, onboarding roadmap, and kickoff details right now! 🚀🤝\n\nWelcome to ShubDeep Labs — we are thrilled to build your project! 💎✨`;
-      
-      await activeSock.sendMessage(chatId, { text: paymentDoneReply });
-      appendToChatMemory(chatId, "user", combinedText, senderName, true);
-      appendToChatMemory(chatId, "assistant", paymentDoneReply, senderName, true);
-
-      // Send High-Priority Instant Alert to Shubham
-      const alertMsg = `🚨 *[CRITICAL: PAYMENT CONFIRMATION FROM CLIENT]* 🚨\n\n👤 *Client:* ${senderName} (+${chatId.split("@")[0]})\n💬 *Client Message:* "${combinedText}"\n\n👉 *Action Required:* Please verify your UPI/bank account and send the official receipt/kickoff message to ${senderName.split(" ")[0]}! 🚀`;
-      await activeSock.sendMessage(OWNER_JID, { text: alertMsg });
-      return;
     }
 
     if (isPaymentRequest) {
