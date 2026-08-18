@@ -1,0 +1,121 @@
+================================================================================
+           SHUBDEEP LABS — WHATSAPP AI BOT MASTER COMMANDS & CHEAT SHEET
+================================================================================
+
+--------------------------------------------------------------------------------
+1. 👑 ADMIN COMMANDS (TYPE THESE IN WHATSAPP CHAT)
+--------------------------------------------------------------------------------
+You (the Owner) can send these commands directly inside any WhatsApp chat:
+
+• #stats
+  -> Shows total active leads, business inquiries, and bot status.
+
+• #leads
+  -> Same as #stats, gives real-time CRM lead count.
+
+• #pause
+  -> Pauses the AI bot for that specific customer chat so you can talk personally.
+
+• #resume
+  -> Re-activates the AI bot for that customer chat.
+
+• #help
+  -> Sends the full admin cheat-sheet directly in WhatsApp.
+
+• #commands
+  -> Same as #help.
+
+
+--------------------------------------------------------------------------------
+2. 💬 CUSTOMER TEST PHRASES (TEST EVERY BOT FEATURE)
+--------------------------------------------------------------------------------
+Type these sample phrases from another phone to test the bot's features:
+
+A. PRICING & ESTIMATES:
+   • "What is the cost for an e-commerce website?"
+   • "Gold shop website banvaychi ahe, kiti charges astat?"
+   • "How much do you charge for hospital management software?"
+   • "Tell me the cotation for AI chatbot."
+
+B. BRANDED PDF PROPOSAL:
+   • "Send me the proposal PDF"
+   • "Can you share official quotation pdf?"
+   • "Send document"
+   • "Download proposal"
+
+C. UPI PAYMENT QR SCANNER:
+   • "How can I pay?"
+   • "Send UPI QR code"
+   • "Send scanner for advance payment"
+   • "I want to pay via Google Pay / PhonePe"
+
+D. URGENT CALL / HOT LEAD ALERT:
+   • "Tell Shubham to call me urgently"
+   • "Call me now"
+   • "Is Shubham available for a quick call?"
+   • "Remind him again"
+
+E. COMPANY & CONTACT DETAILS:
+   • "What is your website link?"
+   • "Who is the founder?"
+   • "What is your official email?"
+   • "Where is your office located?"
+
+F. MULTIMODAL MEDIA:
+   • Send any WhatsApp Voice Note (in Marathi, Hindi, or English).
+   • Send any Screenshot / Website wireframe photo.
+
+G. NIGHT / AFTER-HOURS (Between 8:00 PM – 9:00 AM IST):
+   • Send any message at night to test the after-hours scheduling flow.
+
+
+--------------------------------------------------------------------------------
+3. 💻 TERMINAL / PC RUN COMMANDS (LOCAL EXECUTION)
+--------------------------------------------------------------------------------
+Open terminal / command prompt in "E:\Whatsapp Chatbot":
+
+• START BOT (Auto-Restart Loop):
+  run.bat
+
+• START BOT VIA NODE:
+  npm start
+  (or: node index.js)
+
+• INSTALL DEPENDENCIES:
+  npm install
+
+• RESET / CLEAR WHATSAPP SESSION (TO SCAN NEW QR):
+  rmdir /s /q auth_session
+
+• VIEW CAPTURED LEADS:
+  type leads.json
+
+• VIEW PERSISTENT CHAT HISTORY:
+  type data\chat_history.json
+
+
+--------------------------------------------------------------------------------
+4. 🧠 CUSTOM KNOWLEDGE ADDITION (TRAIN THE BOT WITHOUT CODE)
+--------------------------------------------------------------------------------
+• Folder Location:
+  E:\Whatsapp Chatbot\data\knowledge\
+
+• How to add information:
+  Create any .txt or .md file inside "data\knowledge\" (e.g. products.txt, new_services.md).
+  The bot will automatically read it and know the information upon startup!
+
+
+--------------------------------------------------------------------------------
+5. 🔄 GIT COMMANDS (SAVE & SYNC TO GITHUB)
+--------------------------------------------------------------------------------
+• Pull latest updates:
+  git pull origin main
+
+• Check changes:
+  git status
+
+• Commit & push manual changes:
+  git add -A
+  git commit -m "Your update message"
+  git push origin main
+================================================================================
