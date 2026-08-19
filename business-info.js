@@ -97,28 +97,29 @@ A: Yes, every project includes post-delivery setup assistance and a warranty win
 Q: Can we sign an NDA before discussing project details?
 A: Absolutely. We treat all intellectual property with strict confidentiality and execute standard NDAs upon request.
 
-8. OFFICIAL CLOUD DEPLOYMENT & HOSTING INFRASTRUCTURE PLANS
-When a client confirms/orders a project or asks about taking it live on their own custom domain with 24/7 uptime, explain that building the source code is Step 1, and deploying it live on a fast, secure cloud server is Step 2. We offer 3 professional deployment & hosting setup tiers:
+8. OFFICIAL CLOUD DEPLOYMENT & MONTHLY MAINTENANCE PLANS
+When a client confirms/orders a project or asks about taking it live on their own custom domain with 24/7 hosting, security, and ongoing updates, explain that building the software is Step 1, and keeping it live, secure, and maintained on the cloud is Step 2. We offer 4 complete monthly hosting & maintenance plans:
 
-🚀 Plan 1: Starter Cloud Launch (₹1,499 one-time setup)
-• Setup: Vercel / Render / Supabase serverless deployment.
-• Features: Free HTTPS SSL security certificate, Custom domain linking (.com / .in), automated GitHub CI/CD continuous deployment, global edge CDN.
-• Best For: Portfolio websites, landing pages, academic projects, lightweight web applications.
+1️⃣ Essential Plan — ₹449 / month
+• Includes: Custom Domain (.com / .in), High-Speed Cloud Hosting, Monthly Maintenance Updates, Website Security (SSL Certificate + Firewall).
+• Best For: Portfolio websites, simple blogs, landing pages, academic projects.
 
-⭐ Plan 2: Business Pro Managed Cloud (₹2,999 one-time setup OR ₹999/month fully managed) [RECOMMENDED for E-Commerce & Web Platforms]
-• Setup: Dedicated Cloud VPS (AWS / DigitalOcean / Hostinger Cloud / Hetzner).
-• Features: High-speed Nginx reverse proxy, PM2 process clustering, daily automated database backup snapshots, 99.9% uptime SLA monitoring, business domain email setup (e.g., info@yourdomain.com), live Razorpay/Stripe payment gateway webhook verification.
-• Best For: E-Commerce Stores (Gold/Jewellery), Retail Portals, Multi-user Business SaaS.
+2️⃣ Advanced Plan — ₹559 / month
+• Includes: Custom Domain, Cloud Hosting, Monthly Updates, Enhanced Security & DDoS Protection, PLUS 1 Small Custom Change/Tweak in the project every month!
+• Best For: Small business websites, service showcase portals.
 
-⚡ Plan 3: Enterprise AI & 24/7 High-Availability Infrastructure (₹4,999 setup + cloud host)
-• Setup: Dedicated Multi-Core Cloud VPS with Docker containerization.
-• Features: 24/7 background process supervisor (for 24/7 WhatsApp AI bots, LLM agents, automated background cron jobs), auto-restart daemon, DDoS mitigation, enterprise load balancing, automated database replication.
-• Best For: 24/7 AI Chatbots, High-traffic enterprise applications, automated financial/ERP systems.
+3️⃣ Professional Plan — ₹669 / month [⭐ RECOMMENDED for E-Commerce & Web Stores]
+• Includes: Custom Domain, High-Performance Cloud Hosting with Daily Database Backups, Special Priority Updates, Special Enhanced Security & 99.9% Uptime SLA Monitoring, PLUS 2 Medium Custom Feature Changes/Updates in the project every month!
+• Best For: Gold & Jewellery E-Commerce stores, online retail shops, booking portals.
+
+4️⃣ Ultimate Plan — ₹779 / month
+• Includes: Custom Domain + Professional Business Email (e.g. info@yourdomain.com), Dedicated Premium Cloud Hosting with 24/7 Monitoring, Ultimate Monthly Updates & Priority SLA Engineering Support, Ultimate Enterprise Security & Automated Database Recovery, PLUS 2 Major / Ultimate Custom Changes/Upgrades in the project every month!
+• Best For: High-traffic E-Commerce platforms, 24/7 AI Chatbot systems, multi-user SaaS platforms.
 
 💡 DEPLOYMENT SUGGESTION LOGIC:
-- If client has an E-Commerce or Store project (e.g. Gold & Jewellery website): Strongly recommend "Plan 2: Business Pro Managed Cloud" so their live daily gold rates, shopping cart, customer database backups, and Razorpay payment gateway work seamlessly with 99.9% uptime!
-- If client has a WhatsApp bot / AI automation: Recommend "Plan 3: Enterprise AI & 24/7 Infrastructure".
-- If client has a simple portfolio / landing page: Recommend "Plan 1: Starter Cloud Launch".
+- If client has an E-Commerce or Store project (e.g. Gold & Jewellery website): Strongly recommend "Professional Plan (₹669/mo)" so their live gold rates, shopping cart, customer database backups, Razorpay integration, and 2 monthly feature updates are fully managed!
+- If client wants custom business emails and 24/7 dedicated support: Recommend "Ultimate Plan (₹779/mo)".
+- If client wants a basic landing page / portfolio: Recommend "Essential (₹449/mo)" or "Advanced (₹559/mo)".
 
 6. REAL CLIENT CASE STUDIES & PORTFOLIO
 - Saira Elegance (https://saira-elegance.vercel.app): Fashion E-Commerce with high-speed mobile-first storefront, dynamic inventory, and Razorpay payments.
