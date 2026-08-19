@@ -451,9 +451,27 @@ function generateQuotationPDF(data = {}) {
       doc.fillColor(textSecondary).fontSize(6.8).font("Helvetica")
         .text("Shubham Vernekar (Founder & Principal Architect)", 68, curY + 29);
 
-      // Signature text
-      doc.fillColor(purpleDark).fontSize(11).font("Helvetica-Bold")
-        .text("Shubham Vernekar", 68, curY + 44);
+      // Signature: Cursive handwritten styling with authentic pen flourish stroke
+      doc.font("Times-Italic").fontSize(14).fillColor("#1e1b4b")
+        .text("Shubham Vernekar", 68, curY + 41);
+
+      // Signature ink flourish stroke
+      doc.save();
+      doc.lineWidth(1.1).strokeColor("#1e1b4b");
+      doc.moveTo(68, curY + 54)
+        .bezierCurveTo(88, curY + 56, 120, curY + 53, 150, curY + 55)
+        .bezierCurveTo(165, curY + 56, 180, curY + 52, 188, curY + 54)
+        .stroke();
+      doc.lineWidth(0.8).strokeColor("#4c1d95");
+      doc.moveTo(72, curY + 56)
+        .bezierCurveTo(105, curY + 58, 145, curY + 57, 182, curY + 55)
+        .bezierCurveTo(192, curY + 54, 198, curY + 52, 190, curY + 57)
+        .bezierCurveTo(160, curY + 60, 110, curY + 59, 80, curY + 58)
+        .stroke();
+      doc.restore();
+
+      // Reset back to standard font
+      doc.font("Helvetica");
 
       // --- Right Box: ACCEPTED & CONFIRMED BY CLIENT ---
       doc.roundedRect(rightCardX, curY, halfWidth, signH, 5).fillAndStroke("#ffffff", cardBorder);
@@ -469,14 +487,14 @@ function generateQuotationPDF(data = {}) {
       doc.fillColor(textSecondary).fontSize(6.8).font("Helvetica")
         .text("Project Partner / Authorized Signatory", rightCardX + 44, curY + 29);
 
-      // Signature & Date line
+      // Client Signature Line & Date
       doc.save();
-      doc.lineWidth(0.5).strokeColor("#cbd5e1");
-      doc.moveTo(rightCardX + 44, curY + 46).lineTo(rightCardX + halfWidth - 14, curY + 46).stroke();
+      doc.lineWidth(0.6).strokeColor("#94a3b8");
+      doc.moveTo(rightCardX + 44, curY + 45).lineTo(rightCardX + halfWidth - 14, curY + 45).stroke();
       doc.restore();
 
       doc.fillColor(textPrimary).fontSize(7).font("Helvetica-Bold")
-        .text(`Date: _____ / _____ / ${currentYear}`, rightCardX + 44, curY + 52);
+        .text(`Date: _____ / _____ / ${currentYear}`, rightCardX + 44, curY + 51);
 
       // =============================================================
       // 8. LUXURY BOTTOM FOOTER
