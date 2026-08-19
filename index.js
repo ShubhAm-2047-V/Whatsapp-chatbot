@@ -996,12 +996,17 @@ CRITICAL CONVERSATIONAL RULES:
    - **Step 4 (After Project Confirmation / Payment Done / Asking About Taking Website Live)**:
      * Congratulate the client warmly and confirm that development is officially kicking off! 🎉🚀
      * Proactively introduce our official **ShubDeep Labs Cloud Hosting & Monthly Maintenance Plans**:
-       1️⃣ **Essential Plan** (₹449/mo — Custom Domain, Cloud Hosting, Monthly Updates, SSL Security)
-       2️⃣ **Advanced Plan** (₹559/mo — Custom Domain, Hosting, Monthly Updates, Enhanced Security + 1 Small Custom Change/month)
-       3️⃣ **Professional Plan** (₹669/mo — Custom Domain, High-Speed Hosting, Daily DB Backups, Special Priority Updates, Special Security, 99.9% Uptime + 2 Medium Custom Feature Changes/month) [⭐ RECOMMENDED for E-Commerce & Stores]
-       4️⃣ **Ultimate Plan** (₹779/mo — Custom Domain + Custom Business Email, Dedicated Hosting, 24/7 Monitoring, Ultimate Security + 2 Major/Ultimate Custom Changes/month)
-     * Suggest the best plan for their project (e.g. for E-Commerce / Jewellery stores, recommend **Professional Plan (₹669/mo)** so their live daily rates, shopping cart, customer database backups, Razorpay integration, and 2 monthly feature updates are fully managed!).
-     * Ask if they'd like Shubham to set up their live hosting and domain plan alongside development! ☁️✨
+       1️⃣ **Essential Plan — ₹449 / month**
+       • Domain, Hosting, Monthly Update, Website Security (SSL Certificate + Firewall).
+       2️⃣ **Advanced Plan — ₹559 / month**
+       • Custom Domain, Hosting, Monthly Update, More Security, and 1 Small Custom Change in project per month.
+       3️⃣ **Professional Plan — ₹669 / month** ⭐ [Recommended for E-Commerce & Stores]
+       • Custom Domain, Hosting, Special Update, Special Security, and 2 Medium Changes in project per month.
+       4️⃣ **Ultimate Plan — ₹779 / month**
+       • Custom Domain with Email, Hosting, Ultimate Monthly Update, Ultimate Security, and 2 Ultimate Changes in project per month.
+     * Recommendation rule: For E-Commerce / Store projects, recommend **Professional Plan (₹669/month)**.
+     * Do NOT include extra examples or "e.g." in the plan descriptions. Keep all points clean and direct.
+     * Ask which plan they would like to activate for their project! ☁️✨
 
 3. NATURAL & DIRECT PRICING STYLE:
    - Do NOT use robotic legal disclaimer language.
@@ -1072,7 +1077,7 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
 
   // 1. Hosting / Deployment questions OR replying "Yes" / "Explain me this all" after hosting prompt
   if (/hosting|domain|cloud|server|deployment|deploy/i.test(text) || (isAfterHostingPrompt && (/yes|ha|explain|all|details|sang|batao|kiti|charges|plans/i.test(text)))) {
-    return `Here is the complete breakdown of our 4 official **ShubDeep Labs Cloud Hosting & Maintenance Plans**: ☁️✨\n\n1️⃣ **Essential Plan — ₹449 / month**\n• Custom Domain (.com / .in), Cloud Hosting, Monthly Updates, SSL Security.\n\n2️⃣ **Advanced Plan — ₹559 / month**\n• Custom Domain, Cloud Hosting, Monthly Updates, Enhanced Security + **1 Small Custom Project Change/mo**.\n\n3️⃣ **Professional Plan — ₹669 / month** ⭐ *(Recommended for E-Commerce)*\n• Custom Domain, High-Speed Cloud Hosting, Daily Database Backups, Special Priority Updates, Special Security, 99.9% Uptime + **2 Medium Custom Feature Changes/mo** (Perfect for live gold rates, inventory & payment sync!).\n\n4️⃣ **Ultimate Plan — ₹779 / month**\n• Custom Domain + Business Email (\`info@yourdomain.com\`), Dedicated Hosting, 24/7 Monitoring, Ultimate Security + **2 Major/Ultimate Custom Changes/mo**.\n\nWhich plan would you like us to activate for your project, ${firstName}? 😊🚀`;
+    return `Here is the breakdown of our 4 official **ShubDeep Labs Cloud Deployment Plans**: ☁️✨\n\n1️⃣ **Essential Plan — ₹449 / month**\n• Domain, Hosting, Monthly Update, Website Security (SSL + Firewall).\n\n2️⃣ **Advanced Plan — ₹559 / month**\n• Custom Domain, Hosting, Monthly Update, More Security, and 1 Small Custom Change in project per month.\n\n3️⃣ **Professional Plan — ₹669 / month** ⭐ *(Recommended for E-Commerce)*\n• Custom Domain, Hosting, Special Update, Special Security, and 2 Medium Changes in project per month.\n\n4️⃣ **Ultimate Plan — ₹779 / month**\n• Custom Domain with Email, Hosting, Ultimate Monthly Update, Ultimate Security, and 2 Ultimate Changes in project per month.\n\nWhich plan sounds best for your project, ${firstName}? 😊🚀`;
   }
 
   // 2. Pricing / Quotation questions

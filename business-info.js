@@ -98,28 +98,24 @@ Q: Can we sign an NDA before discussing project details?
 A: Absolutely. We treat all intellectual property with strict confidentiality and execute standard NDAs upon request.
 
 8. OFFICIAL CLOUD DEPLOYMENT & MONTHLY MAINTENANCE PLANS
-When a client confirms/orders a project or asks about taking it live on their own custom domain with 24/7 hosting, security, and ongoing updates, explain that building the software is Step 1, and keeping it live, secure, and maintained on the cloud is Step 2. We offer 4 complete monthly hosting & maintenance plans:
+When a client confirms a project or asks about hosting and deployment, explain that we offer 4 official monthly cloud deployment & update plans:
 
 1️⃣ Essential Plan — ₹449 / month
-• Includes: Custom Domain (.com / .in), High-Speed Cloud Hosting, Monthly Maintenance Updates, Website Security (SSL Certificate + Firewall).
-• Best For: Portfolio websites, simple blogs, landing pages, academic projects.
+• Includes: Domain, Hosting, Monthly Update, Website Security (SSL Certificate + Firewall).
 
 2️⃣ Advanced Plan — ₹559 / month
-• Includes: Custom Domain, Cloud Hosting, Monthly Updates, Enhanced Security & DDoS Protection, PLUS 1 Small Custom Change/Tweak in the project every month!
-• Best For: Small business websites, service showcase portals.
+• Includes: Custom Domain, Hosting, Monthly Update, More Security, and 1 Small Custom Change in project per month.
 
-3️⃣ Professional Plan — ₹669 / month [⭐ RECOMMENDED for E-Commerce & Web Stores]
-• Includes: Custom Domain, High-Performance Cloud Hosting with Daily Database Backups, Special Priority Updates, Special Enhanced Security & 99.9% Uptime SLA Monitoring, PLUS 2 Medium Custom Feature Changes/Updates in the project every month!
-• Best For: Gold & Jewellery E-Commerce stores, online retail shops, booking portals.
+3️⃣ Professional Plan — ₹669 / month ⭐ [Recommended for E-Commerce & Stores]
+• Includes: Custom Domain, Hosting, Special Update, Special Security, and 2 Medium Changes in project per month.
 
 4️⃣ Ultimate Plan — ₹779 / month
-• Includes: Custom Domain + Professional Business Email (e.g. info@yourdomain.com), Dedicated Premium Cloud Hosting with 24/7 Monitoring, Ultimate Monthly Updates & Priority SLA Engineering Support, Ultimate Enterprise Security & Automated Database Recovery, PLUS 2 Major / Ultimate Custom Changes/Upgrades in the project every month!
-• Best For: High-traffic E-Commerce platforms, 24/7 AI Chatbot systems, multi-user SaaS platforms.
+• Includes: Custom Domain with Email, Hosting, Ultimate Monthly Update, Ultimate Security, and 2 Ultimate Changes in project per month.
 
-💡 DEPLOYMENT SUGGESTION LOGIC:
-- If client has an E-Commerce or Store project (e.g. Gold & Jewellery website): Strongly recommend "Professional Plan (₹669/mo)" so their live gold rates, shopping cart, customer database backups, Razorpay integration, and 2 monthly feature updates are fully managed!
-- If client wants custom business emails and 24/7 dedicated support: Recommend "Ultimate Plan (₹779/mo)".
-- If client wants a basic landing page / portfolio: Recommend "Essential (₹449/mo)" or "Advanced (₹559/mo)".
+DEPLOYMENT SUGGESTION RULES:
+- For E-Commerce / Store projects: Recommend "Professional Plan (₹669/month)".
+- For clients needing custom business emails and maximum changes: Recommend "Ultimate Plan (₹779/month)".
+- When presenting these plans, do NOT include extra examples or "e.g." in the description. List the features cleanly.
 
 6. REAL CLIENT CASE STUDIES & PORTFOLIO
 - Saira Elegance (https://saira-elegance.vercel.app): Fashion E-Commerce with high-speed mobile-first storefront, dynamic inventory, and Razorpay payments.
