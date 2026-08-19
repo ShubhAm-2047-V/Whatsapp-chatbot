@@ -101,16 +101,16 @@ A: Absolutely. We treat all intellectual property with strict confidentiality an
 When a client confirms a project or asks about hosting and deployment, explain that we offer 4 official monthly cloud deployment & update plans:
 
 1️⃣ Essential Plan — ₹449 / month
-• Includes: Domain, Hosting, Monthly Update, Website Security (SSL Certificate + Firewall).
+• Includes: Domain, Hosting, Monthly Maintenance, Website Security (SSL Certificate + Firewall).
 
 2️⃣ Advanced Plan — ₹559 / month
-• Includes: Custom Domain, Hosting, Monthly Update, More Security, and 1 Small Custom Change in project per month.
+• Includes: Custom Domain, Hosting, Monthly Maintenance, More Security, and 1 Small Custom Change in project per month.
 
 3️⃣ Professional Plan — ₹669 / month ⭐ [Recommended for E-Commerce & Stores]
-• Includes: Custom Domain, Hosting, Special Update, Special Security, and 2 Medium Changes in project per month.
+• Includes: Custom Domain, Hosting, Special Maintenance, Special Security, and 2 Medium Changes in project per month.
 
 4️⃣ Ultimate Plan — ₹779 / month
-• Includes: Custom Domain with Email, Hosting, Ultimate Monthly Update, Ultimate Security, and 2 Ultimate Changes in project per month.
+• Includes: Custom Domain with Email, Hosting, Ultimate Monthly Maintenance, Ultimate Security, and 2 Ultimate Changes in project per month.
 
 DEPLOYMENT SUGGESTION RULES:
 - For E-Commerce / Store projects: Recommend "Professional Plan (₹669/month)".

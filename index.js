@@ -997,13 +997,13 @@ CRITICAL CONVERSATIONAL RULES:
      * Congratulate the client warmly and confirm that development is officially kicking off! 🎉🚀
      * Proactively introduce our official **ShubDeep Labs Cloud Hosting & Monthly Maintenance Plans**:
        1️⃣ **Essential Plan — ₹449 / month**
-       • Domain, Hosting, Monthly Update, Website Security (SSL Certificate + Firewall).
+       • Domain, Hosting, Monthly Maintenance, Website Security (SSL Certificate + Firewall).
        2️⃣ **Advanced Plan — ₹559 / month**
-       • Custom Domain, Hosting, Monthly Update, More Security, and 1 Small Custom Change in project per month.
+       • Custom Domain, Hosting, Monthly Maintenance, More Security, and 1 Small Custom Change in project per month.
        3️⃣ **Professional Plan — ₹669 / month** ⭐ [Recommended for E-Commerce & Stores]
-       • Custom Domain, Hosting, Special Update, Special Security, and 2 Medium Changes in project per month.
+       • Custom Domain, Hosting, Special Maintenance, Special Security, and 2 Medium Changes in project per month.
        4️⃣ **Ultimate Plan — ₹779 / month**
-       • Custom Domain with Email, Hosting, Ultimate Monthly Update, Ultimate Security, and 2 Ultimate Changes in project per month.
+       • Custom Domain with Email, Hosting, Ultimate Monthly Maintenance, Ultimate Security, and 2 Ultimate Changes in project per month.
      * Recommendation rule: For E-Commerce / Store projects, recommend **Professional Plan (₹669/month)**.
      * Do NOT include extra examples or "e.g." in the plan descriptions. Keep all points clean and direct.
      * Ask which plan they would like to activate for their project! ☁️✨
@@ -1077,7 +1077,7 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
 
   // 1. Hosting / Deployment questions OR replying "Yes" / "Explain me this all" after hosting prompt
   if (/hosting|domain|cloud|server|deployment|deploy/i.test(text) || (isAfterHostingPrompt && (/yes|ha|explain|all|details|sang|batao|kiti|charges|plans/i.test(text)))) {
-    return `Here is the breakdown of our 4 official **ShubDeep Labs Cloud Deployment Plans**: ☁️✨\n\n1️⃣ **Essential Plan — ₹449 / month**\n• Domain, Hosting, Monthly Update, Website Security (SSL + Firewall).\n\n2️⃣ **Advanced Plan — ₹559 / month**\n• Custom Domain, Hosting, Monthly Update, More Security, and 1 Small Custom Change in project per month.\n\n3️⃣ **Professional Plan — ₹669 / month** ⭐ *(Recommended for E-Commerce)*\n• Custom Domain, Hosting, Special Update, Special Security, and 2 Medium Changes in project per month.\n\n4️⃣ **Ultimate Plan — ₹779 / month**\n• Custom Domain with Email, Hosting, Ultimate Monthly Update, Ultimate Security, and 2 Ultimate Changes in project per month.\n\nWhich plan sounds best for your project, ${firstName}? 😊🚀`;
+    return `Here is the breakdown of our 4 official **ShubDeep Labs Cloud Deployment Plans**: ☁️✨\n\n1️⃣ **Essential Plan — ₹449 / month**\n• Domain, Hosting, Monthly Maintenance, Website Security (SSL + Firewall).\n\n2️⃣ **Advanced Plan — ₹559 / month**\n• Custom Domain, Hosting, Monthly Maintenance, More Security, and 1 Small Custom Change in project per month.\n\n3️⃣ **Professional Plan — ₹669 / month** ⭐ *(Recommended for E-Commerce)*\n• Custom Domain, Hosting, Special Maintenance, Special Security, and 2 Medium Changes in project per month.\n\n4️⃣ **Ultimate Plan — ₹779 / month**\n• Custom Domain with Email, Hosting, Ultimate Monthly Maintenance, Ultimate Security, and 2 Ultimate Changes in project per month.\n\nWhich plan sounds best for your project, ${firstName}? 😊🚀`;
   }
 
   // 2. Pricing / Quotation questions
