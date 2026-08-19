@@ -1715,15 +1715,15 @@ async function startBot() {
         const fromMe = !!msg.key.fromMe;
         const isCommand = text.trim().startsWith("#");
 
-        // 4. Strict fromMe filter: Ignore ALL outgoing messages from this WhatsApp account unless it is an explicit admin command starting with #
-        if (fromMe && !isCommand) {
-          continue;
-        }
-
         // Check if this chat belongs to an existing client in CRM
         const allData = loadAllChatHistory();
         const isClientChat = !!(allData[chatId] && !isOwnerChatId(chatId, allData[chatId]));
         const isSelfChat = isOwnerChatId(chatId) || (!isClientChat && fromMe);
+
+        // Inside a CLIENT chat: skip manual typing from owner phone unless it starts with '#'
+        if (fromMe && isClientChat && !isCommand) {
+          continue;
+        }
 
         const senderName = isSelfChat ? "Shubham (Owner)" : (msg.pushName || chatId.split("@")[0]);
 
