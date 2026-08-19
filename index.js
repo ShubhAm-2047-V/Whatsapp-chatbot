@@ -366,6 +366,7 @@ Respond ONLY with valid JSON:
     // Fallback: match keywords like "payment received", "got the payment", "rules", "conditions", "terms", "deepa"
     if (!parsed || !parsed.matchedChatId) {
       const isPaymentReceivedCmd = /got (?:the )?payment|payment (?:is )?received|payment mila|paisa aala|confirm payment/i.test(userMessage);
+      const isDirectSendIntent = /send (?:her|him|them|to|this)|tell (?:her|him)|message (?:her|him)|pathav|saying/i.test(userMessage);
       const isRulesIntent = /rules|conditions|terms|onboarding/i.test(userMessage);
       const isQuoteIntent = /quotation|quote|\d{4,5}/i.test(userMessage);
       const matched = knownClients.find(c => /deepa/i.test(c.name)) || knownClients[0];
@@ -378,6 +379,21 @@ Respond ONLY with valid JSON:
           matchedChatId: matched.chatId,
           clientName: matched.name,
           proposedMessage: `🎉 Namaste ${matched.name.split(" ")[0]}! We have verified and confirmed your ₹6,500 advance payment! 💰✨ Attached is your official ShubDeep Labs Project Proposal & Signed Agreement PDF. Our development & UI design team is officially kicking off your Gold & Jewellery E-Commerce website today! 🚀💎`
+        };
+      } else if (matched && isDirectSendIntent) {
+        let messageToSend = `Namaste ${matched.name.split(" ")[0]}! 😊 Our founder Shubham Vernekar has reviewed your message regarding the hosting plans. He mentioned that our plan rates are fixed and cannot be changed, as they directly cover high-speed cloud servers, security, and dedicated database backups. Let us know if you'd like to proceed with the Professional Plan (₹669/mo) or Essential Plan (₹449/mo)! 🚀✨`;
+
+        if (/fixed|cannot be changed|not possible|no discount|pricw/i.test(userMessage)) {
+          messageToSend = `Namaste ${matched.name.split(" ")[0]}! 😊 Our founder Shubham Vernekar reviewed your hosting plan request. He mentioned that the pricing for our hosting & maintenance plans is fixed and cannot be discounted, as it covers high-speed cloud servers, security, and dedicated database backups. You can choose the **Professional Plan (₹669/mo)** or **Essential Plan (₹449/mo)** as per your budget! 🚀✨`;
+        }
+
+        parsed = {
+          isActionMatched: true,
+          shouldAutoDispatch: true,
+          actionTitle: "Direct Message from Founder",
+          matchedChatId: matched.chatId,
+          clientName: matched.name,
+          proposedMessage: messageToSend,
         };
       } else if (matched && isRulesIntent) {
         parsed = {
@@ -424,7 +440,7 @@ Respond ONLY with valid JSON:
               timeline: "2–3 Weeks",
             });
             const caption = parsed.proposedMessage || `🎉 Namaste ${parsed.clientName.split(" ")[0]}! Here is your official ShubDeep Labs Project Agreement & Proposal PDF! 📄✨ Development is starting today! 🚀`;
-            await sock.sendMessage(parsed.matchedChatId, {
+            await dispatchBotMessage(sock, parsed.matchedChatId, {
               document: pdfBuffer,
               mimetype: "application/pdf",
               fileName: `ShubDeep_Labs_Agreement_${parsed.clientName.replace(/\s+/g, "_")}.pdf`,
@@ -438,7 +454,7 @@ Respond ONLY with valid JSON:
         }
 
         if (parsed.proposedMessage && !isPdf) {
-          await sock.sendMessage(parsed.matchedChatId, { text: parsed.proposedMessage });
+          await dispatchBotMessage(sock, parsed.matchedChatId, { text: parsed.proposedMessage });
           appendToChatMemory(parsed.matchedChatId, "assistant", parsed.proposedMessage, parsed.clientName, true);
           console.log(`🚀 [AUTO DISPATCHED TO CLIENT] Sent to ${parsed.clientName} (${parsed.matchedChatId})`);
         }
