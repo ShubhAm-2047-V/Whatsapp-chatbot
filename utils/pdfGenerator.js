@@ -13,19 +13,20 @@ function sanitizePdfText(str) {
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2013\u2014]/g, "-")
-    .replace(/[^\x20-\x7E\n\r\t]/g, "") // Keep only clean printable ASCII
+    .replace(/[^\x20-\x7E\n\r\t]/g, "")
     .trim();
 }
 
 /**
- * Generates an executive, branded PDF proposal & agreement for ShubDeep Labs
+ * Generates an ultra-premium, single-page executive PDF proposal & agreement
  */
 function generateQuotationPDF(data = {}) {
   return new Promise((resolve, reject) => {
     try {
+      // Create document with margins disabled for absolute pixel-perfect single page control
       const doc = new PDFDocument({
-        margin: 36,
         size: "A4",
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
         autoFirstPage: true,
         bufferPages: true,
       });
@@ -36,17 +37,16 @@ function generateQuotationPDF(data = {}) {
       doc.on("error", (err) => reject(err));
 
       const logoPath = path.join(__dirname, "..", "assets", "logo.jpg");
-      const primaryColor = "#0f172a"; // Deep Slate
-      const secondaryColor = "#1e1b4b"; // Indigo
+      const primaryColor = "#0b1329"; // Deep Midnight Navy
       const accentEmerald = "#059669"; // Emerald Green
-      const textDark = "#1e293b";
-      const textMuted = "#64748b";
+      const accentCyan = "#0284c7"; // Modern Cyan
+      const textDark = "#0f172a";
+      const textMuted = "#475569";
       const lightBg = "#f8fafc";
-      const borderColor = "#e2e8f0";
+      const borderColor = "#cbd5e1";
 
       const clientName = sanitizePdfText(data.clientName || "Valued Client");
       const projectType = sanitizePdfText(data.projectType || "Custom Gold E-Commerce & Web Platform");
-      const rawPrice = sanitizePdfText(data.priceRange || "Rs. 13,000");
       const timeline = sanitizePdfText(data.timeline || "2-3 Weeks");
 
       // -------------------------------------------------------------
@@ -54,10 +54,10 @@ function generateQuotationPDF(data = {}) {
       // -------------------------------------------------------------
       if (fs.existsSync(logoPath)) {
         doc.save();
-        doc.opacity(0.06); // Ultra subtle, premium look
+        doc.opacity(0.05); // Ultra-refined corporate watermark
         const wmSize = 340;
         const wmX = (doc.page.width - wmSize) / 2;
-        const wmY = (doc.page.height - wmSize) / 2 + 30;
+        const wmY = (doc.page.height - wmSize) / 2 + 10;
         doc.image(logoPath, wmX, wmY, { width: wmSize, height: wmSize });
         doc.restore();
       }
@@ -65,116 +65,128 @@ function generateQuotationPDF(data = {}) {
       // -------------------------------------------------------------
       // 2. HEADER BANNER WITH LOGO & BRANDING
       // -------------------------------------------------------------
-      doc.rect(0, 0, doc.page.width, 95).fill(primaryColor);
+      doc.rect(0, 0, doc.page.width, 88).fill(primaryColor);
 
       // Render Logo in Top Header
       if (fs.existsSync(logoPath)) {
         doc.save();
-        doc.image(logoPath, 36, 18, { width: 60, height: 60 });
+        doc.image(logoPath, 36, 16, { width: 56, height: 56 });
         doc.restore();
       }
 
-      const brandStartX = fs.existsSync(logoPath) ? 106 : 36;
-      doc.fillColor("#ffffff").fontSize(20).font("Helvetica-Bold")
-        .text("SHUBDEEP LABS", brandStartX, 25);
-
-      doc.fillColor("#94a3b8").fontSize(9).font("Helvetica")
-        .text("Global Software Engineering & Custom AI Solutions Studio", brandStartX, 48)
-        .text("Empowering Businesses with Next-Gen Digital Architecture", brandStartX, 60);
-
-      const headerRightX = doc.page.width - 220;
-      doc.fillColor("#38bdf8").fontSize(11).font("Helvetica-Bold")
-        .text("PROJECT ESTIMATE & AGREEMENT", headerRightX, 28, { align: "right", width: 184 });
+      const brandStartX = fs.existsSync(logoPath) ? 104 : 36;
+      doc.fillColor("#ffffff").fontSize(19).font("Helvetica-Bold")
+        .text("SHUBDEEP LABS", brandStartX, 22);
 
       doc.fillColor("#94a3b8").fontSize(8.5).font("Helvetica")
-        .text(`Date: ${new Date().toLocaleDateString("en-IN", { dateStyle: "medium" })}`, headerRightX, 48, { align: "right", width: 184 })
-        .text("Doc Ref: SDL-PRP-" + Date.now().toString().slice(-6), headerRightX, 60, { align: "right", width: 184 });
+        .text("Global Software Engineering & Custom AI Solutions Studio", brandStartX, 46)
+        .text("Empowering Businesses with Next-Gen Digital Architecture", brandStartX, 58);
+
+      const headerRightX = doc.page.width - 240;
+      doc.fillColor("#38bdf8").fontSize(10).font("Helvetica-Bold")
+        .text("PROJECT ESTIMATE & AGREEMENT", headerRightX, 22, { align: "right", width: 204 });
+
+      doc.fillColor("#94a3b8").fontSize(8).font("Helvetica")
+        .text(`Date: ${new Date().toLocaleDateString("en-IN", { dateStyle: "medium" })}`, headerRightX, 42, { align: "right", width: 204 })
+        .text("Doc Ref: SDL-PRP-" + Date.now().toString().slice(-6), headerRightX, 55, { align: "right", width: 204 });
 
       // -------------------------------------------------------------
       // 3. PREPARED FOR & AUTHORIZED CONTACT CARD
       // -------------------------------------------------------------
-      let currentY = 110;
-      doc.rect(36, currentY, doc.page.width - 72, 62).fill(lightBg).stroke(borderColor);
+      let currentY = 100;
+      const cardWidth = doc.page.width - 72;
+      doc.rect(36, currentY, cardWidth, 68).fill(lightBg).stroke(borderColor);
 
       // Left Column: Client Details
-      doc.fillColor(primaryColor).fontSize(9.5).font("Helvetica-Bold")
-        .text("PREPARED FOR:", 48, currentY + 10);
+      doc.fillColor(primaryColor).fontSize(8.5).font("Helvetica-Bold")
+        .text("PREPARED FOR:", 50, currentY + 10);
       doc.fillColor(textDark).fontSize(11).font("Helvetica-Bold")
-        .text(clientName, 48, currentY + 24);
-      doc.fillColor(textMuted).fontSize(8.5).font("Helvetica")
-        .text("Verified Project Client Partner", 48, currentY + 40);
+        .text(clientName, 50, currentY + 23);
+      doc.fillColor(textMuted).fontSize(8).font("Helvetica")
+        .text("Verified Project Client Partner", 50, currentY + 40)
+        .text("Status: Active Engagement", 50, currentY + 52);
 
       // Right Column: Shubham Vernekar (Founder)
-      const repX = doc.page.width - 250;
-      doc.fillColor(primaryColor).fontSize(9.5).font("Helvetica-Bold")
+      const repX = doc.page.width - 270;
+      doc.fillColor(primaryColor).fontSize(8.5).font("Helvetica-Bold")
         .text("AUTHORIZED REPRESENTATIVE:", repX, currentY + 10);
       doc.fillColor(textDark).fontSize(10).font("Helvetica-Bold")
-        .text("Shubham Vernekar (Founder & Lead Architect)", repX, currentY + 24);
-      doc.fillColor(textMuted).fontSize(8.5).font("Helvetica")
-        .text("+91 90288 33275 | shubdeeplabs@gmail.com", repX, currentY + 40);
+        .text("Shubham Vernekar", repX, currentY + 23);
+      doc.fillColor(textMuted).fontSize(8).font("Helvetica")
+        .text("Founder & Principal Architect, ShubDeep Labs", repX, currentY + 38)
+        .text("+91 90288 33275 | shubdeeplabs@gmail.com", repX, currentY + 50);
 
       // -------------------------------------------------------------
       // 4. PROJECT SCOPE & KEY DELIVERABLES
       // -------------------------------------------------------------
-      currentY += 76;
-      doc.fillColor(primaryColor).fontSize(12).font("Helvetica-Bold")
+      currentY += 80;
+      doc.fillColor(primaryColor).fontSize(11.5).font("Helvetica-Bold")
         .text("1. Project Overview & Scope of Work", 36, currentY);
 
-      currentY += 18;
-      doc.fillColor(textDark).fontSize(9.5).font("Helvetica")
-        .text(`Project Category: `, 36, currentY, { continued: true })
+      currentY += 17;
+      doc.fillColor(textDark).fontSize(9).font("Helvetica")
+        .text("Project Category: ", 36, currentY, { continued: true })
         .font("Helvetica-Bold").text(projectType);
 
-      currentY += 16;
+      currentY += 15;
       const deliverables = [
         "Modern, Ultra-Responsive UI/UX Layout (Mobile, Tablet & Desktop optimized)",
         "Secure High-Speed Backend Architecture & Cloud Database Integration",
-        "Full E-Commerce Catalog, Shopping Cart & Live Market Rate Sync",
-        "Online Payment Gateway Integration (Instant UPI QR, Cards & Netbanking)",
-        "Admin Management Portal for Products, Inquiries & Lead Tracking",
+        "Full E-Commerce Catalog, Shopping Cart & Live Daily Market Rate Engine",
+        "Online Payment Gateway Integration (Instant UPI QR, Razorpay & Cards)",
+        "Admin Management Portal for Products, Inventory & Lead Tracking",
         "100% Full Source Code Ownership with Zero Vendor Lock-in",
         "Production Deployment & 30-Day Complimentary Post-Launch SLA Support",
       ];
 
-      doc.fillColor(textDark).fontSize(8.5).font("Helvetica");
       deliverables.forEach((item) => {
-        doc.fillColor(accentEmerald).text("•", 44, currentY, { continued: true });
-        doc.fillColor(textDark).text(`  ${item}`, 54, currentY);
-        currentY += 14;
+        doc.fillColor(accentEmerald).fontSize(8.5).font("Helvetica-Bold")
+          .text("•", 44, currentY, { continued: true });
+        doc.fillColor(textDark).fontSize(8).font("Helvetica")
+          .text(`  ${item}`, 52, currentY);
+        currentY += 13.5;
       });
 
       // -------------------------------------------------------------
       // 5. COMMERCIAL INVESTMENT & TIMELINE TABLE
       // -------------------------------------------------------------
       currentY += 8;
-      doc.fillColor(primaryColor).fontSize(12).font("Helvetica-Bold")
-        .text("2. Commercial Estimate & Milestone Schedule", 36, currentY);
+      doc.fillColor(primaryColor).fontSize(11.5).font("Helvetica-Bold")
+        .text("2. Commercial Investment & Milestone Schedule", 36, currentY);
 
-      currentY += 18;
+      currentY += 17;
       // Table Header
       const tableWidth = doc.page.width - 72;
-      doc.rect(36, currentY, tableWidth, 24).fill(primaryColor);
-      doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold")
-        .text("SCOPE / DESCRIPTION", 48, currentY + 7)
-        .text("ESTIMATED TIMELINE", 295, currentY + 7)
-        .text("APPROVED INVESTMENT", 420, currentY + 7, { align: "right", width: 96 });
+      doc.rect(36, currentY, tableWidth, 22).fill(primaryColor);
+      doc.fillColor("#ffffff").fontSize(8.5).font("Helvetica-Bold")
+        .text("SCOPE / DESCRIPTION", 48, currentY + 6)
+        .text("TIMELINE", 290, currentY + 6)
+        .text("APPROVED INVESTMENT", 400, currentY + 6, { align: "right", width: 116 });
 
-      currentY += 24;
+      currentY += 22;
       // Table Row
-      const rowHeight = 44;
+      const rowHeight = 56;
       doc.rect(36, currentY, tableWidth, rowHeight).fill("#ffffff").stroke(borderColor);
-      doc.fillColor(textDark).fontSize(9).font("Helvetica-Bold")
-        .text(projectType, 48, currentY + 9, { width: 235 });
-      doc.fillColor(textMuted).fontSize(8).font("Helvetica")
-        .text("Complete Source Code & Live Cloud Handover", 48, currentY + 23);
 
-      doc.fillColor(textDark).fontSize(9).font("Helvetica-Bold")
-        .text(timeline, 295, currentY + 16);
-
-      doc.fillColor(accentEmerald).fontSize(9.5).font("Helvetica-Bold")
-        .text(rawPrice, 400, currentY + 11, { align: "right", width: 116 });
+      // Column 1: Scope
+      doc.fillColor(textDark).fontSize(8.5).font("Helvetica-Bold")
+        .text(projectType, 48, currentY + 10, { width: 230 });
       doc.fillColor(textMuted).fontSize(7.5).font("Helvetica")
-        .text("50% Advance / 50% Final", 400, currentY + 25, { align: "right", width: 116 });
+        .text("Complete Source Code & Live Cloud Deployment", 48, currentY + 36);
+
+      // Column 2: Timeline
+      doc.fillColor(textDark).fontSize(8.5).font("Helvetica-Bold")
+        .text(timeline, 290, currentY + 18);
+      doc.fillColor(textMuted).fontSize(7.5).font("Helvetica")
+        .text("Live Staging Demo", 290, currentY + 32);
+
+      // Column 3: Investment Breakdown
+      doc.fillColor(accentEmerald).fontSize(9.5).font("Helvetica-Bold")
+        .text("Rs. 13,000", 400, currentY + 10, { align: "right", width: 116 });
+      doc.fillColor(textDark).fontSize(7.5).font("Helvetica")
+        .text("Advance: Rs. 6,500 (50%)", 400, currentY + 24, { align: "right", width: 116 });
+      doc.fillColor(accentCyan).fontSize(7.5).font("Helvetica-Bold")
+        .text("[KICKOFF CONFIRMED]", 400, currentY + 38, { align: "right", width: 116 });
 
       // -------------------------------------------------------------
       // 6. TERMS, ONBOARDING & ACCEPTANCE CLAUSES
@@ -186,15 +198,15 @@ function generateQuotationPDF(data = {}) {
         .text("PROJECT TERMS & ONBOARDING GUIDELINES:", 46, currentY + 8);
 
       const terms = [
-        "Advance Milestone: 50% booking advance payment locks your dedicated development slot.",
-        "Staging & Review: A live preview link will be provided for milestone approval prior to deployment.",
-        "Code Ownership: 100% full unencumbered source code rights transfer to the client upon final settlement.",
-        "Warranty Support: 30 days of free bug-fix warranty and technical maintenance starting from live launch.",
+        "Advance Booking: 50% booking advance payment (Rs. 6,500) locks your dedicated development slot.",
+        "Live Staging & Review: A private live staging link will be provided for milestone review prior to final release.",
+        "100% Code Ownership: Full unencumbered source code & database ownership transfers upon final milestone.",
+        "Post-Launch Warranty: 30 days of complimentary bug fixes, training, and technical support post-deployment.",
       ];
 
       let termY = currentY + 20;
       terms.forEach((term) => {
-        doc.fillColor(textMuted).fontSize(7.5).font("Helvetica")
+        doc.fillColor(textMuted).fontSize(7.3).font("Helvetica")
           .text(`• ${term}`, 46, termY);
         termY += 10.5;
       });
@@ -203,7 +215,7 @@ function generateQuotationPDF(data = {}) {
       // 7. SIGNATORY / APPROVAL BLOCK
       // -------------------------------------------------------------
       currentY += 80;
-      doc.rect(36, currentY, tableWidth, 54).stroke(borderColor);
+      doc.rect(36, currentY, tableWidth, 54).fill("#ffffff").stroke(borderColor);
 
       // Left Signatory: Founder
       doc.fillColor(textDark).fontSize(8).font("Helvetica-Bold")
@@ -225,10 +237,10 @@ function generateQuotationPDF(data = {}) {
       // -------------------------------------------------------------
       // 8. FOOTER
       // -------------------------------------------------------------
-      const footerY = doc.page.height - 38;
-      doc.rect(0, footerY, doc.page.width, 38).fill(primaryColor);
-      doc.fillColor("#94a3b8").fontSize(7.8).font("Helvetica")
-        .text("ShubDeep Labs • Solapur, Maharashtra, India • https://shubh-deep-labs.vercel.app • +91 90288 33275", 36, footerY + 12, { align: "center", width: doc.page.width - 72 });
+      const footerY = doc.page.height - 36;
+      doc.rect(0, footerY, doc.page.width, 36).fill(primaryColor);
+      doc.fillColor("#94a3b8").fontSize(7.5).font("Helvetica")
+        .text("ShubDeep Labs • Solapur, Maharashtra, India • https://shubh-deep-labs.vercel.app • +91 90288 33275", 36, footerY + 13, { align: "center", width: doc.page.width - 72 });
 
       doc.end();
     } catch (e) {
