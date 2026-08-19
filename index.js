@@ -1545,8 +1545,6 @@ async function startBot() {
   });
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
-
     for (const msg of messages) {
       try {
         if (!msg.message) continue;
@@ -1559,12 +1557,22 @@ async function startBot() {
           processedMsgKeys.delete(firstKey);
         }
 
-        // Extract text content
+        // Deep unwrap any message wrappers (ephemeral, viewOnce, etc.)
+        let m = msg.message;
+        while (m.ephemeralMessage || m.viewOnceMessage || m.viewOnceMessageV2 || m.documentWithCaptionMessage) {
+          m = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m.documentWithCaptionMessage?.message || m;
+        }
+
+        // Extract text content across all possible WhatsApp message types
         const text =
-          msg.message.conversation ||
-          msg.message.extendedTextMessage?.text ||
-          msg.message.imageMessage?.caption ||
-          msg.message.videoMessage?.caption ||
+          m.conversation ||
+          m.extendedTextMessage?.text ||
+          m.imageMessage?.caption ||
+          m.videoMessage?.caption ||
+          m.documentMessage?.caption ||
+          m.buttonsResponseMessage?.selectedButtonId ||
+          m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+          m.templateButtonReplyMessage?.selectedId ||
           "";
 
         const chatId = msg.key.remoteJid;
@@ -1588,7 +1596,7 @@ async function startBot() {
         // Extract multimodal media (Images / Audio voice notes)
         const mediaItems = [];
 
-        if (msg.message.imageMessage) {
+        if (m.imageMessage) {
           try {
             const buffer = await downloadMediaMessage(msg, "buffer", {});
             mediaItems.push({ mimetype: "image/jpeg", buffer });
@@ -1598,7 +1606,7 @@ async function startBot() {
           }
         }
 
-        if (msg.message.audioMessage) {
+        if (m.audioMessage) {
           try {
             const buffer = await downloadMediaMessage(msg, "buffer", {});
             mediaItems.push({ mimetype: "audio/ogg", buffer });
@@ -1609,6 +1617,8 @@ async function startBot() {
         }
 
         if (!text.trim() && mediaItems.length === 0) continue;
+
+        console.log(`📥 [INCOMING] From ${senderName} (${chatId}): "${text.replace(/\n/g, ' ')}"`);
 
         const existing = messageQueue.get(chatId) || {
           timer: null,
