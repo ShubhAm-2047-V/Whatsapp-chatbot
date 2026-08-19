@@ -1063,6 +1063,38 @@ ${knowledge}
 }
 
 // ------------------------------------------------------------
+//  DETERMINISTIC LOCAL KNOWLEDGE FALLBACK (Instant Offline Reply Engine)
+// ------------------------------------------------------------
+function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = "Valued Client", memory = {}) {
+  const text = (userMessage || "").toLowerCase();
+  const lastBotMsg = history.filter(h => h.role !== "user").slice(-1)[0]?.text || "";
+  const isAfterHostingPrompt = /hosting/i.test(lastBotMsg) || /essential|advanced|professional|ultimate/i.test(lastBotMsg);
+  const firstName = (memory.name || senderName || "there").split(" ")[0];
+
+  // 1. Hosting / Deployment questions OR replying "Yes" / "Explain me this all" after hosting prompt
+  if (/hosting|domain|cloud|server|deployment|deploy/i.test(text) || (isAfterHostingPrompt && (/yes|ha|explain|all|details|sang|batao|kiti|charges|plans/i.test(text)))) {
+    return `Here is the complete breakdown of our 4 official **ShubDeep Labs Cloud Hosting & Maintenance Plans**: ☁️✨\n\n1️⃣ **Essential Plan — ₹449 / month**\n• Custom Domain (.com / .in), Cloud Hosting, Monthly Updates, SSL Security.\n\n2️⃣ **Advanced Plan — ₹559 / month**\n• Custom Domain, Cloud Hosting, Monthly Updates, Enhanced Security + **1 Small Custom Project Change/mo**.\n\n3️⃣ **Professional Plan — ₹669 / month** ⭐ *(Recommended for E-Commerce)*\n• Custom Domain, High-Speed Cloud Hosting, Daily Database Backups, Special Priority Updates, Special Security, 99.9% Uptime + **2 Medium Custom Feature Changes/mo** (Perfect for live gold rates, inventory & payment sync!).\n\n4️⃣ **Ultimate Plan — ₹779 / month**\n• Custom Domain + Business Email (\`info@yourdomain.com\`), Dedicated Hosting, 24/7 Monitoring, Ultimate Security + **2 Major/Ultimate Custom Changes/mo**.\n\nWhich plan would you like us to activate for your project, ${firstName}? 😊🚀`;
+  }
+
+  // 2. Pricing / Quotation questions
+  if (/price|cost|quote|kiti|charges|rate|budget/i.test(text)) {
+    return `Hey ${firstName}! 👋 For a custom high-speed web application or online store, development typically starts roughly around **₹9,999 to ₹14,999** ✨ depending on the exact design, features, and integrations needed.\n\nOur founder, **Shubham Vernekar (+91 90288 33275)**, can share the exact fixed quote with you! Would you like a quick 5-minute chat with him? 📞🤝`;
+  }
+
+  // 3. Website / Portfolio link
+  if (/website|link|portfolio|demo/i.test(text)) {
+    return `You can check out our official website and live portfolio here: 🌐✨\n👉 https://shubh-deep-labs.vercel.app\n\nFeel free to explore our featured client platforms and projects! 🚀`;
+  }
+
+  // 4. Contact / Founder / Office
+  if (/contact|founder|owner|shubham|office|address|call|phone|email/i.test(text)) {
+    return `You can connect directly with our founder & lead architect:\n\n👤 **Shubham Dinesh Vernekar**\n📱 **Phone / WhatsApp:** +91 90288 33275\n📧 **Email:** shubdeeplabs@gmail.com\n🏢 **Base:** Solapur, Maharashtra, India (PIN: 413001)\n\nHe is happy to assist you anytime! 🚀✨`;
+  }
+
+  return `Thank you so much, ${firstName}! 😊✨ I have recorded your message. Shubham Vernekar (+91 90288 33275) from ShubDeep Labs is reviewing this and will get back to you shortly! 🚀`;
+}
+
+// ------------------------------------------------------------
 //  PROCESS BUFFERED INCOMING MESSAGES (DEBOUNCED BATCHING)
 // ------------------------------------------------------------
 async function processBatchedMessages(chatId, sock) {
@@ -1378,13 +1410,12 @@ Once completed, please share the transaction screenshot here to confirm your pro
         approvedQuote: memory.approvedQuote || null,
       });
     } catch (err) {
-      console.error("Gemini error:", err.message);
-      reply =
-        `Sorry, I had a quick technical hiccup! 😅 Please feel free to reach out directly to Shubham at ${OWNER_PHONE} or shubdeeplabs@gmail.com. 🚀`;
+      console.warn("⚠️ Gemini API error, engaging Local Knowledge Engine:", err.message);
+      reply = getLocalKnowledgeFallback(combinedText, history, senderName, memory);
     }
 
     if (!reply) {
-      reply = "Hey there! 👋 Welcome to ShubDeep Labs! ✨ How can I help you with your project today? 😊";
+      reply = getLocalKnowledgeFallback(combinedText, history, senderName, memory);
     }
 
     // 7. Send the message immediately
