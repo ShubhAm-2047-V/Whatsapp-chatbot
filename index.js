@@ -1355,20 +1355,22 @@ async function processBatchedMessages(chatId, sock) {
       return;
     }
 
-    // 4. Contextual Owner Alerts (Hosting Negotiation vs New Lead)
-    const isHostingNegotiation = /449|669|559|779|hosting|plan|discount|professional|essential|advanced|ultimate/i.test(cleanLower) &&
-      (memory.dealStatus === "WON" || /professional.*449|449.*professional|give.*449|discount|for 449/i.test(cleanLower));
-    const isUrgentHandoff = /call|quickly|urgent|contact|shubham|meet|talk|phone|quote|proposal|price/i.test(cleanLower);
+    // 4. Contextual Owner Alerts (Hosting Negotiation vs Explicit Reminders vs New Lead)
+    const isExplicitReminder = /send (?:him|her|them|it|again)|tell (?:him|her)|remind|notify|did you (?:tell|send)|message (?:him|her)|bolala|sangitla|batao|bata diya|forward|send again|plz tell|please tell|ask him|talk to him/i.test(cleanLower);
+    const isHostingNegotiation = /449|669|559|779|hosting|plan|discount|professional|essential|advanced|ultimate/i.test(cleanLower) ||
+      (isExplicitReminder && history.slice(-6).some(h => /hosting|plan|449|669|professional|essential|advanced|ultimate/i.test(h.text)));
+    const isUrgentHandoff = /call|quickly|urgent|contact|shubham|meet|talk|phone|quote|proposal|price/i.test(cleanLower) || isExplicitReminder;
 
     const lastAlertTime = lastOwnerAlertTimestamps.get(chatId) || 0;
     const nowTs = Date.now();
-    const canSendAlert = (nowTs - lastAlertTime) > 3 * 60 * 1000; // 3-minute cooldown per chat
+    // Allow explicit reminder requests to bypass cooldown; otherwise use 3-min cooldown
+    const canSendAlert = isExplicitReminder || (nowTs - lastAlertTime) > 3 * 60 * 1000;
 
     if (isHostingNegotiation && canSendAlert && chatId !== OWNER_JID) {
       lastOwnerAlertTimestamps.set(chatId, nowTs);
       const projectReq = await extractProjectRequirement(history, combinedText, chatId);
       await notifyHostingNegotiation(senderName, chatId, projectReq, combinedText, combinedText);
-    } else if ((classification.isLead || isUrgentHandoff) && memory.dealStatus !== "WON" && canSendAlert) {
+    } else if ((classification.isLead || isUrgentHandoff) && memory.dealStatus !== "WON" && canSendAlert && chatId !== OWNER_JID) {
       lastOwnerAlertTimestamps.set(chatId, nowTs);
       saveLead({
         name: senderName,
@@ -1377,12 +1379,9 @@ async function processBatchedMessages(chatId, sock) {
         priority: classification.priority || (isUrgentHandoff ? "HOT" : "WARM"),
       });
 
-      // Dispatch real-time WhatsApp alert directly to Shubham Vernekar
-      if (chatId !== OWNER_JID) {
-        const projectRequirement = await extractProjectRequirement(history, combinedText, chatId);
-        const chatSummary = await generateChatSummary(history, combinedText);
-        notifyOwner(senderName, chatId, projectRequirement, chatSummary, combinedText, classification.priority || "HOT");
-      }
+      const projectRequirement = await extractProjectRequirement(history, combinedText, chatId);
+      const chatSummary = await generateChatSummary(history, combinedText);
+      await notifyOwner(senderName, chatId, projectRequirement, chatSummary, combinedText, classification.priority || "HOT");
     }
 
     if (isPaymentRequest) {
