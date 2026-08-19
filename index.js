@@ -94,6 +94,7 @@ const botStartTime = Date.now();
 const pausedChats = new Set();
 const processedMsgKeys = new Set();
 const botSentMsgIds = new Set();
+const lastOwnerAlertTimestamps = new Map(); // chatId -> timestamp of last owner notification
 
 /**
  * Dispatches a message safely while tracking its message ID to prevent self-echo loops
@@ -587,57 +588,65 @@ function isOutsideBusinessHours() {
 // ------------------------------------------------------------
 //  INTELLIGENT PROJECT REQUIREMENT EXTRACTOR
 // ------------------------------------------------------------
-async function extractProjectRequirement(history = [], currentText = "") {
+async function extractProjectRequirement(history = [], currentText = "", chatId = null) {
+  if (chatId) {
+    const allData = loadAllChatHistory();
+    if (allData[chatId]?.projectRequirement) {
+      return allData[chatId].projectRequirement;
+    }
+  }
+
   const userMessages = history.filter((h) => h.role === "user").map((h) => h.text);
   if (currentText) userMessages.push(currentText);
 
   if (userMessages.length === 0) return currentText || "General Software Inquiry";
 
   const allUserText = userMessages.join(" | ");
+  let determinedReq = "Custom Web Application & Business Landing Page";
 
   // Fast pattern recognition
   if (/gold|jewel|ornament/i.test(allUserText)) {
-    return "Gold / Jewelry E-Commerce Website (Live rates, Cart, Payment Gateway)";
-  }
-  if (/hospital|clinic|doctor|patient|opd/i.test(allUserText)) {
-    return "Hospital / Clinic Management Core Desk";
-  }
-  if (/face|biometric|attendance/i.test(allUserText)) {
-    return "Face Recognition Biometric Attendance System";
-  }
-  if (/chat\s*bot|ai\s*bot|agent|whatsapp bot/i.test(allUserText)) {
-    return "Custom 24/7 AI WhatsApp / Web Support Agent";
-  }
-  if (/mobile app|android|flutter|ios/i.test(allUserText)) {
-    return "Mobile App Development (Flutter / Android / iOS)";
-  }
-  if (/e-commerce|ecommerce|store|online shop|shopping/i.test(allUserText)) {
-    return "E-Commerce Online Store with Payment Gateway";
-  }
-  if (/btech|diploma|college|project|mca|bca|academic|thesis|final year/i.test(allUserText)) {
-    return "Academic / College Software Engineering Project";
-  }
-  if (/portfolio|personal website/i.test(allUserText)) {
-    return "Personal Portfolio Website";
-  }
-  if (/website|landing page|web app|saas/i.test(allUserText)) {
-    return "Custom Web Application / Business Landing Page";
+    determinedReq = "Gold & Jewellery E-Commerce Website & Live Rates Platform";
+  } else if (/hospital|clinic|doctor|patient|opd/i.test(allUserText)) {
+    determinedReq = "Hospital & Clinic Management Core Desk";
+  } else if (/face|biometric|attendance/i.test(allUserText)) {
+    determinedReq = "Face Recognition Biometric Attendance System";
+  } else if (/chat\s*bot|ai\s*bot|agent|whatsapp bot/i.test(allUserText)) {
+    determinedReq = "Custom 24/7 AI WhatsApp & Web Support Agent";
+  } else if (/mobile app|android|flutter|ios/i.test(allUserText)) {
+    determinedReq = "Mobile App Development (Flutter / Android / iOS)";
+  } else if (/e-commerce|ecommerce|store|online shop|shopping/i.test(allUserText)) {
+    determinedReq = "E-Commerce Online Store with Payment Gateway";
+  } else if (/btech|diploma|college|project|mca|bca|academic|thesis|final year/i.test(allUserText)) {
+    determinedReq = "Academic & College Software Engineering Project";
+  } else if (/portfolio|personal website/i.test(allUserText)) {
+    determinedReq = "Personal Portfolio Website";
+  } else if (/website|landing page|web app|saas/i.test(allUserText)) {
+    determinedReq = "Custom Web Application & Business Landing Page";
+  } else {
+    // Ask Gemini for a crisp 1-line requirement title
+    try {
+      const data = await executeGeminiRequest({
+        contents: [{
+          role: "user",
+          parts: [{ text: `Based on these customer inquiries: "${allUserText}", summarize what project the customer wants to build in 4 to 8 words (e.g. "Gold E-Commerce Website with Live Rates"). Return ONLY the short title.` }]
+        }],
+        generationConfig: { maxOutputTokens: 30, temperature: 0.1 }
+      });
+      const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (summary) determinedReq = summary.replace(/["\n]/g, "");
+    } catch (e) {}
   }
 
-  // Ask Gemini for a crisp 1-line requirement title
-  try {
-    const data = await executeGeminiRequest({
-      contents: [{
-        role: "user",
-        parts: [{ text: `Based on these customer inquiries: "${allUserText}", summarize what project the customer wants to build in 4 to 8 words (e.g. "Gold E-Commerce Website with Live Rates"). Return ONLY the short title.` }]
-      }],
-      generationConfig: { maxOutputTokens: 30, temperature: 0.1 }
-    });
-    const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (summary) return summary.replace(/["\n]/g, "");
-  } catch (e) {}
+  if (chatId) {
+    const allData = loadAllChatHistory();
+    if (allData[chatId]) {
+      allData[chatId].projectRequirement = determinedReq;
+      saveAllChatHistory(allData);
+    }
+  }
 
-  return currentText;
+  return determinedReq;
 }
 
 // ------------------------------------------------------------
@@ -703,6 +712,34 @@ ${chatSummary}
     console.log(`🔔 [OWNER ALERT DISPATCHED] Sent lead notification to Shubham Vernekar (${OWNER_PHONE})`);
   } catch (e) {
     console.warn("⚠️ Could not dispatch owner alert:", e.message);
+  }
+}
+
+// ------------------------------------------------------------
+//  HOSTING PLAN NEGOTIATION & DISCOUNT REQUEST DISPATCHER
+// ------------------------------------------------------------
+async function notifyHostingNegotiation(clientName, chatId, projectRequirement, requestedDiscountText, latestMsg) {
+  if (!currentSock) return;
+  try {
+    const cleanPhone = chatId.split("@")[0];
+    const alertMessage = 
+`🎯 *[HOSTING PLAN DISCOUNT / APPROVAL REQUEST]* ☁️✨
+
+👤 *Client:* ${clientName || "Client"}
+📱 *WhatsApp:* +${cleanPhone}
+💼 *Project:* ${projectRequirement}
+
+💬 *Client Request:* "${requestedDiscountText || latestMsg}"
+
+📋 *Status:* Deal is CLOSED (Development Advance Received). Client is now asking to get the **Professional Hosting Plan (₹669/mo)** at the **₹449/mo** Essential rate.
+⏰ *Time:* ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: '2-digit', minute: '2-digit' })}
+
+👉 *Action Required:* Call or message ${clientName.split(" ")[0]} directly to approve the discount or finalize their hosting agreement! 🤝`;
+
+    await dispatchBotMessage(currentSock, OWNER_JID, { text: alertMessage });
+    console.log(`🔔 [HOSTING DISCOUNT ALERT DISPATCHED] for ${clientName}`);
+  } catch (e) {
+    console.warn("⚠️ Could not dispatch hosting discount alert:", e.message);
   }
 }
 
@@ -1318,10 +1355,21 @@ async function processBatchedMessages(chatId, sock) {
       return;
     }
 
-    // 4. Lead Capture & General Owner Alert (Only for active inquiries, NOT closed deals)
+    // 4. Contextual Owner Alerts (Hosting Negotiation vs New Lead)
+    const isHostingNegotiation = /449|669|559|779|hosting|plan|discount|professional|essential|advanced|ultimate/i.test(cleanLower) &&
+      (memory.dealStatus === "WON" || /professional.*449|449.*professional|give.*449|discount|for 449/i.test(cleanLower));
     const isUrgentHandoff = /call|quickly|urgent|contact|shubham|meet|talk|phone|quote|proposal|price/i.test(cleanLower);
 
-    if (classification.isLead || isUrgentHandoff) {
+    const lastAlertTime = lastOwnerAlertTimestamps.get(chatId) || 0;
+    const nowTs = Date.now();
+    const canSendAlert = (nowTs - lastAlertTime) > 3 * 60 * 1000; // 3-minute cooldown per chat
+
+    if (isHostingNegotiation && canSendAlert && chatId !== OWNER_JID) {
+      lastOwnerAlertTimestamps.set(chatId, nowTs);
+      const projectReq = await extractProjectRequirement(history, combinedText, chatId);
+      await notifyHostingNegotiation(senderName, chatId, projectReq, combinedText, combinedText);
+    } else if ((classification.isLead || isUrgentHandoff) && memory.dealStatus !== "WON" && canSendAlert) {
+      lastOwnerAlertTimestamps.set(chatId, nowTs);
       saveLead({
         name: senderName,
         chatId,
@@ -1331,7 +1379,7 @@ async function processBatchedMessages(chatId, sock) {
 
       // Dispatch real-time WhatsApp alert directly to Shubham Vernekar
       if (chatId !== OWNER_JID) {
-        const projectRequirement = await extractProjectRequirement(history, combinedText);
+        const projectRequirement = await extractProjectRequirement(history, combinedText, chatId);
         const chatSummary = await generateChatSummary(history, combinedText);
         notifyOwner(senderName, chatId, projectRequirement, chatSummary, combinedText, classification.priority || "HOT");
       }
