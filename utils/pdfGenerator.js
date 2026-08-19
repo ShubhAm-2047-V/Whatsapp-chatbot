@@ -58,6 +58,14 @@ function drawDocIcon(doc, x, y) {
   doc.restore();
 }
 
+function drawFolderIcon(doc, x, y) {
+  doc.save();
+  doc.lineWidth(0.8).strokeColor("#d97706").fillColor("#fef3c7");
+  doc.roundedRect(x, y + 2, 11, 8.5, 1.5).fillAndStroke();
+  doc.rect(x + 1, y, 4.5, 2.5).fill("#d97706");
+  doc.restore();
+}
+
 function drawPhoneIcon(doc, x, y) {
   doc.save();
   doc.lineWidth(0.8).strokeColor("#4c1d95").fillColor("#faf5ff");
@@ -75,11 +83,29 @@ function drawMailIcon(doc, x, y) {
   doc.restore();
 }
 
-function drawHandshakeIcon(doc, cx, cy) {
+function drawShieldIcon(doc, cx, cy) {
   doc.save();
-  doc.lineWidth(1.3).strokeColor("#ffffff");
-  doc.moveTo(cx - 5, cy - 1).lineTo(cx - 1.5, cy + 2.5).lineTo(cx + 2, cy - 1).lineTo(cx + 5.5, cy + 2.5).stroke();
-  doc.moveTo(cx - 1.5, cy + 2.5).lineTo(cx + 2, cy + 2.5).stroke();
+  doc.lineWidth(1).strokeColor("#d97706").fillColor("#fef3c7");
+  doc.path(`M ${cx - 5} ${cy - 5} L ${cx + 5} ${cy - 5} L ${cx + 5} ${cy} C ${cx + 5} ${cy + 5}, ${cx} ${cy + 7}, ${cx} ${cy + 7} C ${cx} ${cy + 7}, ${cx - 5} ${cy + 5}, ${cx - 5} ${cy} Z`).fillAndStroke();
+  doc.restore();
+}
+
+function drawGoldSealBadge(doc, cx, cy, radius = 22) {
+  doc.save();
+  // Outer gold rim
+  doc.circle(cx, cy, radius).lineWidth(1.5).strokeColor("#d97706").fillColor("#fefce8").fillAndStroke();
+  doc.circle(cx, cy, radius - 2.5).lineWidth(0.6).strokeColor("#fbbf24").stroke();
+  // Inner document icon
+  drawDocIcon(doc, cx - 4.5, cy - 6);
+  doc.restore();
+}
+
+function drawFiligreeLine(doc, startX, endX, y) {
+  doc.save();
+  doc.lineWidth(0.8).strokeColor("#d97706");
+  doc.moveTo(startX, y).lineTo(endX, y).stroke();
+  const midX = (startX + endX) / 2;
+  doc.fillColor("#d97706").fontSize(5).text("*", midX - 2, y - 2.5);
   doc.restore();
 }
 
@@ -107,10 +133,10 @@ function generateQuotationPDF(data = {}) {
       const signCardPath = path.join(__dirname, "..", "assets", "signature_card.png");
 
       // Brand Color Palette
-      const purpleDark = "#2e1065";   // Deep Royal Purple
+      const purpleDark = "#1e1b4b";   // Deep Royal Navy/Purple
       const purpleBrand = "#4c1d95";  // Royal Violet
-      const purpleLight = "#7c3aed";  // Electric Violet
       const goldAccent = "#d97706";   // Amber Gold
+      const goldOchre = "#b45309";    // Deep Gold
       const emeraldGreen = "#059669"; // Confirmed Emerald
       const cyanBadge = "#0284c7";    // Sky Blue
       const cardBg = "#faf5ff";       // Subtle Luxury Lavender tint
@@ -133,14 +159,18 @@ function generateQuotationPDF(data = {}) {
       const balanceDue = isPaid ? "Rs. 6,500" : "Rs. 13,000";
       const paymentStatus = isPaid ? "ADVANCE RECEIVED" : "PAYMENT PENDING";
       const paymentMethod = isPaid ? "UPI (9028833275@ybl) / Bank" : "Pending Kickoff";
-      const transactionId = isPaid ? "UPI/SDL/" + Date.now().toString().slice(-8) : "Pending";
+      const transactionId = isPaid ? "UPI456789012345" : "Pending";
       const receiptNo = data.receiptNo || `SDL-RCP-${currentYear}-001`;
       const projectRef = data.projectRef || `SDL-PRO-7-${currentYear}`;
 
       // =============================================================
-      // 0. LUXURY CORNER ACCENTS (Top-Right & Bottom Edges)
+      // 0. LUXURY PAGE BORDER & CORNER ACCENTS
       // =============================================================
       doc.save();
+      // Outer subtle page border
+      doc.roundedRect(12, 12, doc.page.width - 24, doc.page.height - 24, 8)
+        .lineWidth(0.8).strokeColor("#e2e8f0");
+
       // Top-Right Luxury Gold & Purple Ribbon Arcs
       doc.lineWidth(3.5).strokeColor(goldAccent);
       doc.path("M 450 0 C 525 0, 595 40, 595 105").stroke();
@@ -176,46 +206,47 @@ function generateQuotationPDF(data = {}) {
       // =============================================================
       // 2. HEADER BRANDING & DUAL DOCUMENT IDENTITY
       // =============================================================
-      const logoSize = 60;
+      const logoSize = 62;
       if (fs.existsSync(logoPath)) {
         doc.save();
         doc.image(logoPath, 24, 16, { width: logoSize, height: logoSize });
         doc.restore();
       }
 
-      const brandStartX = fs.existsSync(logoPath) ? 92 : 24;
+      const brandStartX = fs.existsSync(logoPath) ? 94 : 24;
+      // SHUBDEEP (Navy) + LABS (Ochre Gold)
       doc.fillColor(purpleDark).fontSize(22).font("Helvetica-Bold")
-        .text("SHUBDEEP LABS", brandStartX, 18);
+        .text("SHUBDEEP", brandStartX, 18, { continued: true })
+        .fillColor(goldOchre).text(" LABS");
 
       doc.fillColor(textPrimary).fontSize(8).font("Helvetica-Bold")
-        .text("Global Software Engineering & Custom AI Solutions Studio", brandStartX, 42);
+        .text("Global Software Engineering & Custom AI Solutions Studio", brandStartX, 43);
 
-      doc.fillColor(purpleBrand).fontSize(7.5).font("Helvetica")
-        .text("Empowering Businesses with Next-Gen Digital Architecture", brandStartX, 53);
-
-      // Gold decorative divider under brand
-      doc.save();
-      doc.lineWidth(0.8).strokeColor(goldAccent);
-      doc.moveTo(brandStartX, 65).lineTo(brandStartX + 225, 65).stroke();
-      doc.fillColor(goldAccent).fontSize(5).text("*", brandStartX + 110, 62.5);
-      doc.restore();
+      doc.fillColor(goldOchre).fontSize(7.5).font("Helvetica-Oblique")
+        .text("Empowering Businesses with Next-Gen Digital Architecture", brandStartX, 54);
 
       // Right Document Metadata Box: PROJECT AGREEMENT & PAYMENT RECEIPT
-      const metaX = 330;
+      const metaX = 336;
       doc.fillColor(purpleDark).fontSize(8.6).font("Helvetica-Bold")
         .text("PROJECT AGREEMENT & PAYMENT RECEIPT", metaX, 17, { width: 230, align: "left" });
 
-      // Receipt No & Project Ref (Separated clearly)
-      drawDocIcon(doc, metaX, 32);
-      doc.fillColor(purpleBrand).fontSize(7.5).font("Helvetica-Bold")
-        .text(`Receipt No: ${receiptNo}`, metaX + 15, 33, { width: 200 });
-
-      drawCalendarIcon(doc, metaX, 46);
+      // Receipt No
+      drawDocIcon(doc, metaX, 31);
       doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
-        .text(`Project Ref: ${projectRef}`, metaX + 15, 47, { width: 200 });
+        .text("Receipt No.   :  ", metaX + 15, 32, { continued: true })
+        .fillColor(purpleBrand).text(receiptNo);
 
-      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
-        .text(`Date: ${currentDate}`, metaX + 15, 60, { width: 200 });
+      // Project Ref
+      drawFolderIcon(doc, metaX, 44);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+        .text("Project Ref.   :  ", metaX + 15, 46, { continued: true })
+        .text(projectRef);
+
+      // Date
+      drawCalendarIcon(doc, metaX, 58);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+        .text("Date              :  ", metaX + 15, 59, { continued: true })
+        .fillColor(textSecondary).font("Helvetica").text(currentDate);
 
       // =============================================================
       // 3. TOP CLIENT & AUTHORIZED REPRESENTATIVE CARDS (Height: 56)
@@ -224,14 +255,14 @@ function generateQuotationPDF(data = {}) {
       const halfWidth = 268;
       const topCardH = 56;
 
-      // --- Left Card: PREPARED FOR ---
+      // --- Left Card: PREPARED FOR (CLIENT PARTNER) ---
       doc.roundedRect(24, curY, halfWidth, topCardH, 5).fillAndStroke(cardBg, cardBorder);
 
       doc.circle(42, curY + 28, 13).fill(purpleDark);
       drawUserAvatar(doc, 42, curY + 28);
 
       doc.fillColor(purpleBrand).fontSize(7.2).font("Helvetica-Bold")
-        .text("PREPARED FOR (CLIENT PARTNER):", 62, curY + 8);
+        .text("PREPARED FOR (CLIENT PARTNER)", 62, curY + 8);
       doc.fillColor(textPrimary).fontSize(10).font("Helvetica-Bold")
         .text(clientName, 62, curY + 19);
       doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
@@ -247,7 +278,7 @@ function generateQuotationPDF(data = {}) {
       drawUserAvatar(doc, rightCardX + 18, curY + 28);
 
       doc.fillColor(purpleBrand).fontSize(7.2).font("Helvetica-Bold")
-        .text("AUTHORIZED REPRESENTATIVE:", rightCardX + 38, curY + 8);
+        .text("AUTHORIZED REPRESENTATIVE", rightCardX + 38, curY + 8);
       doc.fillColor(textPrimary).fontSize(10).font("Helvetica-Bold")
         .text("Shubham Vernekar", rightCardX + 38, curY + 19);
       doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
@@ -263,7 +294,7 @@ function generateQuotationPDF(data = {}) {
         .text("shubdeeplabs@gmail.com", rightCardX + 141, curY + 43);
 
       // =============================================================
-      // 4. SECTION 01: PROJECT OVERVIEW & SCOPE OF WORK (Height: 146)
+      // 4. SECTION 01: PROJECT OVERVIEW & TECHNICAL SCOPE OF WORK
       // =============================================================
       curY += topCardH + 12;
 
@@ -275,56 +306,75 @@ function generateQuotationPDF(data = {}) {
       doc.fillColor(purpleDark).fontSize(9.5).font("Helvetica-Bold")
         .text("PROJECT OVERVIEW & TECHNICAL SCOPE OF WORK", 54, curY + 3.5);
 
-      // Gold filigree line
-      doc.save();
-      doc.lineWidth(0.8).strokeColor(goldAccent);
-      doc.moveTo(330, curY + 9).lineTo(440, curY + 9).stroke();
-      doc.fillColor(goldAccent).fontSize(5).text("*", 383, curY + 6.5);
-      doc.restore();
+      drawFiligreeLine(doc, 320, 420, curY + 9);
 
-      curY += 20;
+      curY += 19;
       doc.fillColor(purpleBrand).fontSize(8).font("Helvetica-Bold")
         .text("Project Category: ", 24, curY, { continued: true })
         .fillColor(textPrimary).text(projectType);
 
-      curY += 14;
+      curY += 13;
 
-      // --- 2-Column Full Scope Deliverables ---
+      // --- Left Deliverables Column (4 items) ---
       const col1X = 24;
-      const col2X = 302;
+      const col2X = 196;
       let dY1 = curY;
       const col1Items = [
-        "Modern, Ultra-Responsive UI/UX Layout (Mobile, Tablet & Desktop)",
+        "Modern, User-Responsive UI/UX Layout\n(Mobile, Tablet & Desktop Optimized)",
         "Secure High-Speed Backend Architecture & Cloud Database Integration",
-        "Full E-Commerce Catalog, Shopping Cart & Live Market Rate Engine",
-        "Online Payment Gateway Integration (Instant UPI QR, Razorpay & Cards)",
+        "Full E-Commerce Catalog, Shopping Cart & Live Daily Market Rate Engine",
+        "Online Payment Gateway Integration\n(Instant UPI QR, Razorpay & Cards)",
       ];
 
       col1Items.forEach((text) => {
         drawCheckBadge(doc, col1X + 6, dY1 + 6);
-        doc.fillColor(textPrimary).fontSize(7.3).font("Helvetica-Bold")
-          .text(text, col1X + 16, dY1 + 1.5, { width: 260, lineGap: 1 });
-        dY1 += 23;
+        doc.fillColor(textPrimary).fontSize(7).font("Helvetica-Bold")
+          .text(text, col1X + 16, dY1 + 1.5, { width: 154, lineGap: 1.5 });
+        dY1 += 26;
       });
 
+      // --- Middle Deliverables Column (3 items) ---
       let dY2 = curY;
       const col2Items = [
-        "Admin Management Portal for Products, Inventory & Live Inquiries",
+        "Admin Management Portal for Products, Inventory & Live Tracking",
         "100% Full Unencumbered Source Code Ownership (Zero Lock-in)",
         "Production Deployment & 30-Day SLA Engineering Support",
       ];
 
       col2Items.forEach((text) => {
         drawCheckBadge(doc, col2X + 6, dY2 + 6);
-        doc.fillColor(textPrimary).fontSize(7.3).font("Helvetica-Bold")
-          .text(text, col2X + 16, dY2 + 1.5, { width: 250, lineGap: 1 });
-        dY2 += 23;
+        doc.fillColor(textPrimary).fontSize(7).font("Helvetica-Bold")
+          .text(text, col2X + 16, dY2 + 1.5, { width: 158, lineGap: 1.5 });
+        dY2 += 26;
       });
 
+      // --- Right Box: PAYMENT RECEIPT SIDE-CARD (Matching Mockup) ---
+      const receiptCardSideX = 384;
+      const receiptCardSideY = curY - 7;
+      const receiptCardSideW = 186;
+      const receiptCardSideH = 114;
+
+      doc.roundedRect(receiptCardSideX, receiptCardSideY, receiptCardSideW, receiptCardSideH, 8)
+        .fillAndStroke("#ffffff", cardBorder);
+
+      // Gold Embossed Round Seal Icon at Top Center
+      drawGoldSealBadge(doc, receiptCardSideX + (receiptCardSideW / 2), receiptCardSideY + 28, 20);
+
+      // Title
+      doc.fillColor(purpleDark).fontSize(9).font("Helvetica-Bold")
+        .text("PAYMENT RECEIPT", receiptCardSideX, receiptCardSideY + 56, { width: receiptCardSideW, align: "center" });
+
+      // Body Disclaimer
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("This document is a payment receipt\nand project acknowledgment.", receiptCardSideX + 10, receiptCardSideY + 70, { width: receiptCardSideW - 20, align: "center", lineGap: 1 })
+        .text("It is not a tax invoice.", receiptCardSideX + 10, receiptCardSideY + 92, { width: receiptCardSideW - 20, align: "center" });
+
+      drawFiligreeLine(doc, receiptCardSideX + 30, receiptCardSideX + receiptCardSideW - 30, receiptCardSideY + 105);
+
       // =============================================================
-      // 5. SECTION 02: COMMERCIAL INVESTMENT & OFFICIAL PAYMENT RECEIPT
+      // 5. SECTION 02: COMMERCIAL INVESTMENT & PAYMENT RECEIPT
       // =============================================================
-      curY = 278;
+      curY = 276;
 
       // Section Number Badge "02"
       doc.roundedRect(24, curY, 24, 16, 3).fill(purpleDark);
@@ -334,159 +384,192 @@ function generateQuotationPDF(data = {}) {
       doc.fillColor(purpleDark).fontSize(9.5).font("Helvetica-Bold")
         .text("COMMERCIAL INVESTMENT & PAYMENT RECEIPT", 54, curY + 3.5);
 
-      // Gold filigree line
-      doc.save();
-      doc.lineWidth(0.8).strokeColor(goldAccent);
-      doc.moveTo(310, curY + 9).lineTo(430, curY + 9).stroke();
-      doc.fillColor(goldAccent).fontSize(5).text("*", 368, curY + 6.5);
-      doc.restore();
+      drawFiligreeLine(doc, 310, 420, curY + 9);
 
-      curY += 20;
+      curY += 19;
 
-      // --- Left Box: COMMERCIAL INVESTMENT & MILESTONES (Width: 268, Height: 154) ---
+      // --- Left Box: COMMERCIAL INVESTMENT BREAKDOWN (Width: 268, Height: 156) ---
       const commW = 268;
-      const cardHeight = 154;
+      const cardHeight = 156;
 
       doc.roundedRect(24, curY, commW, cardHeight, 6).fillAndStroke("#ffffff", cardBorder);
 
       // Header Bar
-      doc.roundedRect(24, curY, commW, 22, 4).fill(purpleDark);
+      doc.roundedRect(24, curY, commW, 20, 4).fill(purpleDark);
       doc.fillColor("#ffffff").fontSize(8).font("Helvetica-Bold")
-        .text("COMMERCIAL INVESTMENT BREAKDOWN", 36, curY + 6);
+        .text("COMMERCIAL INVESTMENT BREAKDOWN", 36, curY + 5.5);
 
-      let cY = curY + 30;
-      // Row 1: Total Project Value
+      let cY = curY + 28;
+      // Row 1: Total Agreed Project Value
       doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Total Agreed Project Value:", 36, cY);
-      doc.fillColor(purpleDark).fontSize(9.5).font("Helvetica-Bold")
-        .text(totalProjectVal, 175, cY - 1, { width: 105, align: "right" });
+        .text("Total Agreed Project Value", 36, cY);
+      doc.fillColor(purpleDark).fontSize(9).font("Helvetica-Bold")
+        .text(totalProjectVal, 175, cY, { width: 105, align: "right" });
 
-      cY += 20;
-      // Row 2: Advance Required (50%)
+      cY += 19;
+      // Row 2: Booking Advance Required (50%)
       doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Booking Advance Required (50%):", 36, cY);
+        .text("Booking Advance Required (50%)", 36, cY);
       doc.fillColor(textPrimary).fontSize(8.5).font("Helvetica-Bold")
         .text(advanceRequired, 175, cY, { width: 105, align: "right" });
 
-      cY += 20;
+      cY += 19;
       // Row 3: Estimated Timeline
       doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Project Delivery Timeline:", 36, cY);
+        .text("Project Delivery Timeline", 36, cY);
       doc.fillColor(textPrimary).fontSize(8.5).font("Helvetica-Bold")
         .text(timeline, 175, cY, { width: 105, align: "right" });
 
-      cY += 20;
-      // Row 4: Final Handover Milestone
+      cY += 19;
+      // Row 4: Final Milestone on Handover (50%)
       doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Final Milestone on Handover (50%):", 36, cY);
+        .text("Final Milestone on Handover (50%)", 36, cY);
       doc.fillColor(textPrimary).fontSize(8.5).font("Helvetica-Bold")
         .text("Rs. 6,500", 175, cY, { width: 105, align: "right" });
 
-      cY += 22;
-      // Summary Highlight Bar inside Commercial Box
-      doc.roundedRect(32, cY, commW - 16, 26, 4).fill(cardBg);
+      cY += 23;
+      // Summary Highlight Box with Gold Shield
+      doc.roundedRect(32, cY, commW - 16, 28, 4).fill(cardBg);
       doc.fillColor(purpleBrand).fontSize(7.5).font("Helvetica-Bold")
-        .text("Deliverable Handover:", 40, cY + 4)
-        .fillColor(textSecondary).font("Helvetica").text("Full Source Code & Cloud Staging Handover", 40, cY + 14);
+        .text("Deliverable Handover:", 42, cY + 5);
+      doc.fillColor(textSecondary).font("Helvetica").fontSize(7)
+        .text("Full Source Code & Cloud Staging Handover", 42, cY + 16);
 
-      // --- Right Box: OFFICIAL PAYMENT RECEIPT (Width: 268, Height: 154) ---
+      // Gold shield icon on right of handover box
+      drawShieldIcon(doc, 32 + commW - 32, cY + 14);
+
+      // --- Right Box: PAYMENT ACKNOWLEDGEMENT RECEIPT (Width: 268, Height: 156) ---
       const receiptCardX = 302;
       doc.roundedRect(receiptCardX, curY, commW, cardHeight, 6).fillAndStroke("#ffffff", cardBorder);
 
-      // Header Bar with Status Badge
-      doc.roundedRect(receiptCardX, curY, commW, 22, 4).fill(purpleDark);
+      // Header Bar
+      doc.roundedRect(receiptCardX, curY, commW, 20, 4).fill(purpleDark);
       doc.fillColor("#ffffff").fontSize(8).font("Helvetica-Bold")
-        .text("PAYMENT ACKNOWLEDGMENT RECEIPT", receiptCardX + 12, curY + 6);
+        .text("PAYMENT ACKNOWLEDGEMENT RECEIPT", receiptCardX + 12, curY + 5.5);
 
-      let rY = curY + 30;
+      let rY = curY + 26;
       // Receipt Details Rows
-      doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Receipt Number:", receiptCardX + 12, rY);
-      doc.fillColor(purpleBrand).fontSize(8).font("Helvetica-Bold")
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Receipt Number", receiptCardX + 12, rY);
+      doc.fillColor(purpleBrand).fontSize(7.5).font("Helvetica-Bold")
         .text(receiptNo, receiptCardX + 140, rY, { width: 116, align: "right" });
 
-      rY += 16;
-      doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Amount Received (Advance):", receiptCardX + 12, rY);
-      doc.fillColor(emeraldGreen).fontSize(10).font("Helvetica-Bold")
+      rY += 12;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Project Reference", receiptCardX + 12, rY);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+        .text(projectRef, receiptCardX + 140, rY, { width: 116, align: "right" });
+
+      rY += 12;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Payment Date", receiptCardX + 12, rY);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+        .text(currentDate, receiptCardX + 140, rY, { width: 116, align: "right" });
+
+      rY += 13;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Amount Received (Advance)", receiptCardX + 12, rY);
+      doc.fillColor(emeraldGreen).fontSize(9.5).font("Helvetica-Bold")
         .text(amountReceived, receiptCardX + 140, rY - 1, { width: 116, align: "right" });
 
-      rY += 17;
-      doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Payment Method:", receiptCardX + 12, rY);
-      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+      rY += 13;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Payment Method", receiptCardX + 12, rY);
+      doc.fillColor(textPrimary).fontSize(7.2).font("Helvetica-Bold")
         .text(paymentMethod, receiptCardX + 110, rY, { width: 146, align: "right" });
 
-      rY += 16;
-      doc.fillColor(textSecondary).fontSize(7.5).font("Helvetica")
-        .text("Balance Due on Launch:", receiptCardX + 12, rY);
-      doc.fillColor(textPrimary).fontSize(8.5).font("Helvetica-Bold")
+      rY += 12;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Transaction / Reference ID", receiptCardX + 12, rY);
+      doc.fillColor(textPrimary).fontSize(7.2).font("Helvetica-Bold")
+        .text(transactionId, receiptCardX + 120, rY, { width: 136, align: "right" });
+
+      rY += 12;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Total Project Value", receiptCardX + 12, rY);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+        .text(totalProjectVal, receiptCardX + 140, rY, { width: 116, align: "right" });
+
+      rY += 12;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Total Amount Paid", receiptCardX + 12, rY);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+        .text(amountReceived, receiptCardX + 140, rY, { width: 116, align: "right" });
+
+      rY += 12;
+      doc.fillColor(textSecondary).fontSize(7.2).font("Helvetica")
+        .text("Balance Due", receiptCardX + 12, rY);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
         .text(balanceDue, receiptCardX + 140, rY, { width: 116, align: "right" });
 
-      rY += 18;
+      rY += 14;
       // Prominent Payment Status Badge Card
-      doc.roundedRect(receiptCardX + 10, rY, commW - 20, 24, 4)
+      doc.roundedRect(receiptCardX + 8, rY, commW - 16, 20, 4)
         .fillAndStroke(isPaid ? "#ecfdf5" : "#fffbeb", isPaid ? "#a7f3d0" : "#fde68a");
 
-      doc.fillColor(isPaid ? emeraldGreen : goldAccent).fontSize(8).font("Helvetica-Bold")
-        .text(`STATUS:  ${paymentStatus}`, receiptCardX + 18, rY + 7);
+      doc.fillColor(textPrimary).fontSize(7.5).font("Helvetica-Bold")
+        .text("STATUS: ", receiptCardX + 14, rY + 5.5, { continued: true })
+        .fillColor(isPaid ? emeraldGreen : goldAccent).text(paymentStatus);
 
       if (isPaid) {
-        doc.fillColor(cyanBadge).fontSize(7.5).font("Helvetica-Bold")
-          .text("[KICKOFF CONFIRMED]", receiptCardX + 150, rY + 7, { width: 100, align: "right" });
+        doc.fillColor(cyanBadge).fontSize(7).font("Helvetica-Bold")
+          .text("[KICKOFF CONFIRMED]", receiptCardX + 150, rY + 5.5, { width: 95, align: "right" });
       }
 
-      rY += 28;
+      rY += 23;
       // Official Non-Tax Invoice Disclaimer
-      doc.fillColor(textSecondary).fontSize(6.2).font("Helvetica")
-        .text("This document is a payment receipt and project acknowledgment. It is not a tax invoice.", receiptCardX + 10, rY, { width: commW - 20, align: "center" });
+      doc.fillColor(textSecondary).fontSize(5.8).font("Helvetica")
+        .text("This document is a payment receipt and project acknowledgment. It is not a tax invoice.", receiptCardX + 8, rY, { width: commW - 16, align: "center" });
 
       // =============================================================
-      // 6. SECTION 03: PROJECT TERMS & ONBOARDING GUIDELINES (Height: 90)
+      // 6. SECTION 03: PROJECT TERMS & ONBOARDING GUIDELINES
       // =============================================================
-      curY += cardHeight + 12;
-      const termsH = 88;
+      curY += cardHeight + 10;
+      const termsH = 80;
       const tableW = 546;
       doc.roundedRect(24, curY, tableW, termsH, 5).fillAndStroke(cardBg, cardBorder);
 
-      // Shield icon + Title
-      doc.circle(36, curY + 12, 5.5).fill(purpleDark);
-      doc.fillColor("#ffffff").fontSize(6).font("Helvetica-Bold").text("v", 34.2, curY + 8.5);
+      // Section Number Badge "03"
+      doc.roundedRect(32, curY + 6, 20, 14, 3).fill(purpleDark);
+      doc.fillColor("#ffffff").fontSize(7.5).font("Helvetica-Bold")
+        .text("03", 32, curY + 8.5, { width: 20, align: "center" });
 
       doc.fillColor(purpleDark).fontSize(8).font("Helvetica-Bold")
-        .text("PROJECT TERMS & ONBOARDING GUIDELINES:", 48, curY + 8);
+        .text("PROJECT TERMS & ONBOARDING GUIDELINES", 56, curY + 8.5);
+
+      drawFiligreeLine(doc, 290, 380, curY + 13);
 
       // 2-Column Guidelines with Clean Spacing
       const tCol1X = 36;
       const tCol2X = 302;
-      let tY = curY + 22;
+      let tY = curY + 24;
 
       // Col 1 (3 items)
       const t1 = [
-        "Advance Milestone: 50% booking advance (Rs. 6,500) locks dedicated development & UI kickoff.",
-        "Live Staging & Review: Private demo staging preview will be provided for review prior to deployment.",
-        "100% Code Ownership: Full unencumbered source code & database transfer upon final settlement.",
+        "Advance Booking: 50% booking advance payment (Rs. 6,500) locks your dedicated development slot.",
+        "Live Staging & Review: A private live staging link will be provided for review prior to final release.",
+        "100% Code Ownership: Full unencumbered source code & database ownership transfer upon final milestone.",
       ];
       t1.forEach((item) => {
-        doc.fillColor(purpleBrand).fontSize(7.5).font("Helvetica-Bold").text(">", tCol1X, tY);
+        doc.fillColor(goldOchre).fontSize(7.5).font("Helvetica-Bold").text(">", tCol1X, tY);
         doc.fillColor(textPrimary).fontSize(6.8).font("Helvetica").text(item, tCol1X + 10, tY, { width: 245, lineGap: 1 });
-        tY += 18;
+        tY += 17;
       });
 
       // Col 2 (2 items)
-      doc.fillColor(purpleBrand).fontSize(7.5).font("Helvetica-Bold").text(">", tCol2X, curY + 22);
+      doc.fillColor(goldOchre).fontSize(7.5).font("Helvetica-Bold").text(">", tCol2X, curY + 24);
       doc.fillColor(textPrimary).fontSize(6.8).font("Helvetica")
-        .text("Post-Launch Warranty: 30 days of complimentary bug fixes, training, and SLA support post-launch.", tCol2X + 10, curY + 22, { width: 245, lineGap: 1 });
+        .text("Post-Launch Warranty: 30 days of complimentary bug fixes, training, and SLA support post-launch.", tCol2X + 10, curY + 24, { width: 245, lineGap: 1 });
 
-      doc.fillColor(purpleBrand).fontSize(7.5).font("Helvetica-Bold").text(">", tCol2X, curY + 48);
+      doc.fillColor(goldOchre).fontSize(7.5).font("Helvetica-Bold").text(">", tCol2X, curY + 48);
       doc.fillColor(textPrimary).fontSize(6.8).font("Helvetica")
         .text("Final Settlement: Balance 50% payable upon complete project staging verification & handover.", tCol2X + 10, curY + 48, { width: 245, lineGap: 1 });
 
       // =============================================================
-      // 7. SECTION 04: SIGNATORY & COMPANY AUTHORIZATION (Height: 88)
+      // 7. SECTION 04: SIGNATORY & COMPANY AUTHORIZATION
       // =============================================================
-      curY += termsH + 12;
-      const signH = 88;
+      curY += termsH + 10;
+      const signH = 82;
 
       // --- Left Box: FOR SHUBDEEP LABS (Official 3D Gold Seal & Signature Card) ---
       if (fs.existsSync(signCardPath)) {
@@ -498,49 +581,50 @@ function generateQuotationPDF(data = {}) {
 
         if (fs.existsSync(logoPath)) {
           doc.save();
-          doc.circle(46, curY + 44, 18).stroke(goldAccent);
-          doc.image(logoPath, 34, curY + 30, { width: 26, height: 26 });
+          doc.circle(46, curY + 41, 18).stroke(goldAccent);
+          doc.image(logoPath, 34, curY + 28, { width: 26, height: 26 });
           doc.restore();
         }
 
         doc.fillColor(purpleDark).fontSize(7.5).font("Helvetica-Bold")
-          .text("FOR SHUBDEEP LABS (AUTHORIZED SIGNATORY):", 68, curY + 10);
+          .text("FOR SHUBDEEP LABS", 68, curY + 8);
         doc.fillColor(emeraldGreen).fontSize(7.2).font("Helvetica-Bold")
-          .text("[OFFICIALLY VERIFIED & APPROVED]", 68, curY + 22);
+          .text("[OFFICIALLY VERIFIED & APPROVED]", 68, curY + 19);
         doc.fillColor(textPrimary).fontSize(8.5).font("Helvetica-Bold")
-          .text("Shubham Vernekar", 68, curY + 34);
+          .text("Shubham Vernekar", 68, curY + 30);
         doc.fillColor(textSecondary).fontSize(7).font("Helvetica")
-          .text("Founder & Principal Architect", 68, curY + 46);
+          .text("Founder & Principal Architect", 68, curY + 41);
 
         // Cursive handwritten script signature
         doc.font("Times-Italic").fontSize(13).fillColor("#1e1b4b")
-          .text("Shubham Vernekar", 68, curY + 60);
+          .text("Shubham Vernekar", 68, curY + 54);
 
         doc.font("Helvetica");
       }
 
-      // --- Right Box: ACCEPTED & CONFIRMED BY CLIENT (Height: 88) ---
+      // --- Right Box: CLIENT ACCEPTANCE & ACKNOWLEDGEMENT ---
       doc.roundedRect(rightCardX, curY, halfWidth, signH, 5).fillAndStroke("#ffffff", cardBorder);
 
-      // Handshake purple circle
-      doc.circle(rightCardX + 22, curY + 44, 16).fill(purpleDark);
-      drawHandshakeIcon(doc, rightCardX + 22, curY + 44);
+      // Navy circle with Client Signature monogram
+      doc.circle(rightCardX + 22, curY + 41, 16).fill(purpleDark);
+      doc.fillColor("#ffffff").font("Times-Italic").fontSize(9.5).text("Jas", rightCardX + 15, curY + 37);
 
+      doc.font("Helvetica");
       doc.fillColor(purpleDark).fontSize(7.5).font("Helvetica-Bold")
-        .text("CLIENT ACCEPTANCE & ACKNOWLEDGMENT:", rightCardX + 44, curY + 10);
+        .text("CLIENT ACCEPTANCE & ACKNOWLEDGEMENT", rightCardX + 44, curY + 8);
       doc.fillColor(textPrimary).fontSize(8.5).font("Helvetica-Bold")
-        .text(clientName, rightCardX + 44, curY + 23);
+        .text(clientName, rightCardX + 44, curY + 21);
       doc.fillColor(textSecondary).fontSize(7).font("Helvetica")
-        .text("Project Partner / Authorized Signatory", rightCardX + 44, curY + 36);
+        .text("Project Partner / Authorized Signatory", rightCardX + 44, curY + 34);
 
       // Signature line & Date
       doc.save();
       doc.lineWidth(0.6).strokeColor("#cbd5e1");
-      doc.moveTo(rightCardX + 44, curY + 54).lineTo(rightCardX + halfWidth - 14, curY + 54).stroke();
+      doc.moveTo(rightCardX + 44, curY + 52).lineTo(rightCardX + halfWidth - 14, curY + 52).stroke();
       doc.restore();
 
       doc.fillColor(textPrimary).fontSize(7.2).font("Helvetica-Bold")
-        .text(`Date: _____ / _____ / ${currentYear}`, rightCardX + 44, curY + 64);
+        .text(`Date: _____ / _____ / ${currentYear}`, rightCardX + 44, curY + 60);
 
       // =============================================================
       // 8. LUXURY BOTTOM FOOTER
@@ -548,7 +632,8 @@ function generateQuotationPDF(data = {}) {
       const footerY = 818;
       doc.save();
       doc.fillColor(purpleDark).fontSize(7.5).font("Helvetica-Bold")
-        .text("ShubDeep Labs | Software Development & AI Solutions  .  BUILDING INTELLIGENT SOLUTIONS", 0, footerY, { align: "center", width: doc.page.width });
+        .text("ShubDeep Labs | Software Development & AI Solutions", 0, footerY - 11, { align: "center", width: doc.page.width })
+        .fillColor(goldOchre).text(".   BUILDING INTELLIGENT SOLUTIONS   .", 0, footerY + 1, { align: "center", width: doc.page.width });
       doc.restore();
 
       doc.end();
