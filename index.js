@@ -180,9 +180,8 @@ async function executeGeminiRequest(payload) {
         });
 
         if (res.status === 429) {
-          console.warn(`⚠️ [API KEY ROTATION] Key #${keyIdx + 1} quota limit reached (429). Rotating to next API key...`);
-          activeKeyIndex = (keyIdx + 1) % totalKeys;
-          break; // Break model loop, try next key immediately
+          console.warn(`⚠️ [API ROTATION] Key #${keyIdx + 1} (${model}) rate limited (429). Trying fallback model...`);
+          continue; // Try next model on this key before switching keys!
         }
 
         if (!res.ok) continue;
