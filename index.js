@@ -115,14 +115,10 @@ function loadDynamicKnowledge() {
 }
 
 // ------------------------------------------------------------
-//  MULTI-KEY ROTATING & MULTI-MODEL FALLBACK ENGINE
+//  MULTI-KEY ROTATING & ULTRA-LOW LATENCY MODEL ENGINE
 // ------------------------------------------------------------
 const GEMINI_MODELS = [
-  GEMINI_MODEL,
-  "gemini-3.5-flash",
-  "gemini-flash-latest",
   "gemini-2.5-flash-lite",
-  "gemini-flash-lite-latest",
   "gemini-2.5-flash",
 ];
 
@@ -1363,10 +1359,7 @@ Once completed, please share the transaction screenshot here to confirm your pro
       reply = "Hey there! 👋 Welcome to ShubDeep Labs! ✨ How can I help you with your project today? 😊";
     }
 
-    // Brief realistic pause (400ms)
-    await new Promise((r) => setTimeout(r, 400));
-
-    // 7. Send the message
+    // 7. Send the message immediately
     await activeSock.sendMessage(chatId, { text: reply });
 
     // 8. Persist to long-term memory file on disk
@@ -1635,7 +1628,7 @@ async function startBot() {
 
         existing.timer = setTimeout(() => {
           processBatchedMessages(chatId, sock);
-        }, 600); // 600ms fast debounce
+        }, 200); // 200ms instant debounce capture
 
         messageQueue.set(chatId, existing);
       } catch (err) {
