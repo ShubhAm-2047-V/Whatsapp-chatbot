@@ -92,6 +92,29 @@ process.on("unhandledRejection", (reason) => {
 // Admin state
 const pausedChats = new Set();
 const processedMsgKeys = new Set();
+const botSentMsgIds = new Set();
+
+/**
+ * Dispatches a message safely while tracking its message ID to prevent self-echo loops
+ */
+async function dispatchBotMessage(sock, jid, content, options = {}) {
+  if (!sock) return null;
+  try {
+    const sent = await sock.sendMessage(jid, content, options);
+    if (sent?.key?.id) {
+      botSentMsgIds.add(sent.key.id);
+      processedMsgKeys.add(sent.key.id);
+      if (botSentMsgIds.size > 5000) {
+        const firstKey = botSentMsgIds.values().next().value;
+        botSentMsgIds.delete(firstKey);
+      }
+    }
+    return sent;
+  } catch (err) {
+    console.warn(`Could not dispatch message to ${jid}:`, err.message);
+    return null;
+  }
+}
 
 // ------------------------------------------------------------
 //  DYNAMIC KNOWLEDGE BASE AUTO-LOADER (data/knowledge/)
@@ -676,7 +699,7 @@ ${chatSummary}
 
 👉 _Call or message the client now to close the deal!_ 🚀`;
 
-    await currentSock.sendMessage(OWNER_JID, { text: alertMessage });
+    await dispatchBotMessage(currentSock, OWNER_JID, { text: alertMessage });
     console.log(`🔔 [OWNER ALERT DISPATCHED] Sent lead notification to Shubham Vernekar (${OWNER_PHONE})`);
   } catch (e) {
     console.warn("⚠️ Could not dispatch owner alert:", e.message);
@@ -704,7 +727,7 @@ ${clientEmail ? `📧 *Email:* \`${clientEmail}\`\n` : ""}💡 *Project:* ${proj
 
 👉 *Action Required:* Please verify your UPI/bank (9028833275@ybl) and send the official receipt & kickoff confirmation to ${clientName.split(" ")[0]}! 🚀🤝`;
 
-    await currentSock.sendMessage(OWNER_JID, { text: alertMessage });
+    await dispatchBotMessage(currentSock, OWNER_JID, { text: alertMessage });
     console.log(`🎉 [PAYMENT NOTIFICATION SENT TO OWNER] for ${clientName}`);
   } catch (err) {
     console.warn("⚠️ Could not notify owner of payment:", err.message);
@@ -1074,7 +1097,7 @@ async function processBatchedMessages(chatId, sock) {
         const statsReply = `📊 *[SHUBDEEP LABS AI STATS]* 📊\n\n• Total Active Chats: *${total}*\n• Business Inquiries: *${businessChats}*\n• Hot Leads: *${hotLeads}*\n• AI Engine: *Active & Online* ✅`;
         
         if (activeSock) {
-          await activeSock.sendMessage(targetJid, { text: statsReply });
+          await dispatchBotMessage(activeSock, targetJid, { text: statsReply });
         }
         console.log(`📊 [ADMIN STATS DISPATCHED] Sent to ${targetJid}`);
         return;
@@ -1082,7 +1105,7 @@ async function processBatchedMessages(chatId, sock) {
       if (cleanCmd === "#pause") {
         pausedChats.add(chatId);
         if (activeSock) {
-          await activeSock.sendMessage(targetJid, { text: "⏸️ *AI Bot paused for this chat.* You can now chat directly. Send `#resume` anytime to turn AI back on." });
+          await dispatchBotMessage(activeSock, targetJid, { text: "⏸️ *AI Bot paused for this chat.* You can now chat directly. Send `#resume` anytime to turn AI back on." });
         }
         console.log(`⏸️ [PAUSED] AI Bot paused for ${chatId}`);
         return;
@@ -1090,7 +1113,7 @@ async function processBatchedMessages(chatId, sock) {
       if (cleanCmd === "#resume") {
         pausedChats.delete(chatId);
         if (activeSock) {
-          await activeSock.sendMessage(targetJid, { text: "▶️ *AI Bot resumed for this chat.*" });
+          await dispatchBotMessage(activeSock, targetJid, { text: "▶️ *AI Bot resumed for this chat.*" });
         }
         console.log(`▶️ [RESUMED] AI Bot resumed for ${chatId}`);
         return;
@@ -1112,7 +1135,7 @@ async function processBatchedMessages(chatId, sock) {
 • *"Screenshot / Wireframe"* — Gemini Vision analyzes layout
 • *"Call Shubham / Contact Owner"* — Hot lead alert sent to your WhatsApp!`;
         if (activeSock) {
-          await activeSock.sendMessage(targetJid, { text: helpReply });
+          await dispatchBotMessage(activeSock, targetJid, { text: helpReply });
         }
         console.log(`🛠️ [ADMIN HELP DISPATCHED] Sent to ${targetJid}`);
         return;
@@ -1134,15 +1157,15 @@ async function processBatchedMessages(chatId, sock) {
       if (pending && isSendCmd) {
         pendingQuoteDispatches.delete(OWNER_JID);
         try {
-          await activeSock.sendMessage(pending.targetChatId, { text: pending.messageText });
+          await dispatchBotMessage(activeSock, pending.targetChatId, { text: pending.messageText });
           appendToChatMemory(pending.targetChatId, "assistant", pending.messageText, pending.clientName, true);
           console.log(`🚀 [DISPATCHED REVISED QUOTE] Sent to ${pending.clientName} (${pending.targetChatId})`);
           
           const confirmMsg = `🚀 *Quotation of ${pending.revisedPrice || 'Approved Rate'} Sent Directly to ${pending.clientName} on WhatsApp!* ✨\n\n💬 *Message Sent:* \n"${pending.messageText}"`;
-          await activeSock.sendMessage(targetJid, { text: confirmMsg });
+          await dispatchBotMessage(activeSock, targetJid, { text: confirmMsg });
           return;
         } catch (sendErr) {
-          await activeSock.sendMessage(targetJid, { text: `⚠️ Could not send to client: ${sendErr.message}` });
+          await dispatchBotMessage(activeSock, targetJid, { text: `⚠️ Could not send to client: ${sendErr.message}` });
           return;
         }
       }
@@ -1169,11 +1192,15 @@ async function processBatchedMessages(chatId, sock) {
         }
       }
 
-      await activeSock.sendMessage(targetJid, { text: ownerReply });
+      if (ownerReply && !ownerReply.includes("Executive AI Error")) {
+        await dispatchBotMessage(activeSock, targetJid, { text: ownerReply });
+      }
 
       appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
-      appendToChatMemory(chatId, "assistant", ownerReply, "Shubham (Owner)", true);
-      console.log(`🤖 [EXECUTIVE AI REPLIED TO OWNER]: "${ownerReply.replace(/\n/g, " ")}"`);
+      if (ownerReply && !ownerReply.includes("Executive AI Error")) {
+        appendToChatMemory(chatId, "assistant", ownerReply, "Shubham (Owner)", true);
+      }
+      console.log(`🤖 [EXECUTIVE AI REPLIED TO OWNER]: "${(ownerReply || '').replace(/\n/g, " ")}"`);
       return;
     }
 
@@ -1222,7 +1249,7 @@ async function processBatchedMessages(chatId, sock) {
 
       const paymentDoneReply = `Thank you so much, ${senderName.split(" ")[0]}! 🎉✨ We have received your payment confirmation!\n\nI have notified our founder Shubham Vernekar (+91 90288 33275) to verify the transaction in our bank/UPI records. He is preparing your official booking receipt, onboarding roadmap, and kickoff details right now! 🚀🤝\n\nWelcome to ShubDeep Labs — we are thrilled to build your project! 💎✨`;
       
-      await activeSock.sendMessage(chatId, { text: paymentDoneReply });
+      await dispatchBotMessage(activeSock, chatId, { text: paymentDoneReply });
       appendToChatMemory(chatId, "user", combinedText, senderName, true);
       appendToChatMemory(chatId, "assistant", paymentDoneReply, senderName, true);
 
@@ -1236,7 +1263,7 @@ async function processBatchedMessages(chatId, sock) {
             timeline: "2–3 Weeks",
           });
 
-          await activeSock.sendMessage(chatId, {
+          await dispatchBotMessage(activeSock, chatId, {
             document: pdfBuffer,
             mimetype: "application/pdf",
             fileName: `ShubDeep_Labs_Proposal_${(memory.name || senderName).replace(/\s+/g, "_")}.pdf`,
@@ -1294,7 +1321,7 @@ You can scan this QR code to pay securely via **Google Pay / PhonePe / Paytm / B
 
 Once completed, please share the transaction screenshot here to confirm your project kickoff! 🚀🤝`;
 
-        await activeSock.sendMessage(chatId, {
+        await dispatchBotMessage(activeSock, chatId, {
           image: qrBuffer,
           caption: paymentCaption,
         });
@@ -1320,7 +1347,7 @@ Once completed, please share the transaction screenshot here to confirm your pro
 
         const caption = `Here is your official ShubDeep Labs Project Proposal & Agreement PDF! 📄✨\n\n• **Approved Investment:** ${approvedPrice}\n• **Booking Advance (50%):** ₹6,500\n• **Delivery Timeline:** 2–3 Weeks\n• **Source Code:** 100% Full Ownership\n\nShubham is at your service if you have any questions! 🚀`;
 
-        await activeSock.sendMessage(chatId, {
+        await dispatchBotMessage(activeSock, chatId, {
           document: pdfBuffer,
           mimetype: "application/pdf",
           fileName: `ShubDeep_Labs_Proposal_${(memory.name || senderName).replace(/\s+/g, "_")}.pdf`,
@@ -1360,7 +1387,7 @@ Once completed, please share the transaction screenshot here to confirm your pro
     }
 
     // 7. Send the message immediately
-    await activeSock.sendMessage(chatId, { text: reply });
+    await dispatchBotMessage(activeSock, chatId, { text: reply });
 
     // 8. Persist to long-term memory file on disk
     appendToChatMemory(chatId, "user", combinedText || "[Media Attachment]", senderName, true);
@@ -1418,7 +1445,7 @@ function startFollowUpEngine() {
 👉 _Review recent chat logs in leads.json & connect with pending prospects!_ 🚀`;
 
         try {
-          await currentSock.sendMessage(OWNER_JID, { text: digestMessage });
+          await dispatchBotMessage(currentSock, OWNER_JID, { text: digestMessage });
           console.log(`📊 [DAILY DIGEST SENT] Dispatched 8:00 PM summary to Shubham Vernekar`);
         } catch (e) {}
       }
@@ -1444,7 +1471,7 @@ function startFollowUpEngine() {
           console.log(`⏰ [AUTO FOLLOW-UP] Sending polite nudge to ${chat.name || chatId}...`);
 
           try {
-            await currentSock.sendMessage(chatId, { text: followUpText });
+            await dispatchBotMessage(currentSock, chatId, { text: followUpText });
 
             chat.followUpCount = (chat.followUpCount || 0) + 1;
             chat.lastFollowUp = now;
@@ -1575,6 +1602,25 @@ async function startBot() {
           m.templateButtonReplyMessage?.selectedId ||
           "";
 
+        // 1. Skip if message ID is known to be sent by this bot
+        if (botSentMsgIds.has(msgId)) continue;
+
+        // 2. Skip if message content matches automated bot templates/alerts
+        const isBotTemplate =
+          text.startsWith("🚨 *[HOT LEAD NOTIFICATION]*") ||
+          text.startsWith("📊 *[SHUBDEEP LABS") ||
+          text.startsWith("🎯 *[PROJECT TERMS") ||
+          text.startsWith("⚠️ Executive AI Error") ||
+          text.startsWith("🚀 *Quotation of") ||
+          text.startsWith("📰 *[SHUBDEEP LABS") ||
+          text.includes("Executive AI Error") ||
+          text.includes("ShubDeep Labs chi AI Chief of Staff");
+
+        if (isBotTemplate) {
+          botSentMsgIds.add(msgId);
+          continue;
+        }
+
         const chatId = msg.key.remoteJid;
         const fromMe = !!msg.key.fromMe;
 
@@ -1586,8 +1632,11 @@ async function startBot() {
         const isSelfChat = isOwnerChatId(chatId) || (fromMe && !isClientChat);
         const isCommand = text.trim().startsWith("#");
 
-        // Skip our own manual outgoing typing inside client chats, but ALLOW ALL messages in Owner Self-Chat
+        // Skip our own manual outgoing typing inside client chats
         if (fromMe && isClientChat && !isCommand) continue;
+
+        // Skip outgoing messages in self chat if they were sent by the bot socket
+        if (fromMe && botSentMsgIds.has(msgId)) continue;
 
         const senderName = isSelfChat ? "Shubham (Owner)" : (msg.pushName || chatId.split("@")[0]);
 
