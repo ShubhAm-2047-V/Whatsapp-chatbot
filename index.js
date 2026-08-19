@@ -90,6 +90,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // Admin state
+const botStartTime = Date.now();
 const pausedChats = new Set();
 const processedMsgKeys = new Set();
 const botSentMsgIds = new Set();
@@ -1602,10 +1603,17 @@ async function startBot() {
           m.templateButtonReplyMessage?.selectedId ||
           "";
 
-        // 1. Skip if message ID is known to be sent by this bot
+        // 1. Ignore historical backlog messages synced from before the bot started
+        const rawTs = msg.messageTimestamp;
+        const msgTimestampMs = (typeof rawTs === "number" ? rawTs : (rawTs?.low || 0)) * 1000;
+        if (msgTimestampMs && msgTimestampMs < botStartTime - 15000) {
+          continue;
+        }
+
+        // 2. Skip if message ID is known to be sent by this bot
         if (botSentMsgIds.has(msgId)) continue;
 
-        // 2. Skip if message content matches automated bot templates/alerts
+        // 3. Skip if message content matches automated bot templates/alerts
         const isBotTemplate =
           text.startsWith("🚨 *[HOT LEAD NOTIFICATION]*") ||
           text.startsWith("📊 *[SHUBDEEP LABS") ||
@@ -1623,20 +1631,17 @@ async function startBot() {
 
         const chatId = msg.key.remoteJid;
         const fromMe = !!msg.key.fromMe;
+        const isCommand = text.trim().startsWith("#");
+
+        // 4. Strict fromMe filter: Ignore ALL outgoing messages from this WhatsApp account unless it is an explicit admin command starting with #
+        if (fromMe && !isCommand) {
+          continue;
+        }
 
         // Check if this chat belongs to an existing client in CRM
         const allData = loadAllChatHistory();
         const isClientChat = !!(allData[chatId] && !isOwnerChatId(chatId, allData[chatId]));
-
-        // If fromMe is true and it's NOT inside a known client chat, it is Shubham in Self-Chat!
-        const isSelfChat = isOwnerChatId(chatId) || (fromMe && !isClientChat);
-        const isCommand = text.trim().startsWith("#");
-
-        // Skip our own manual outgoing typing inside client chats
-        if (fromMe && isClientChat && !isCommand) continue;
-
-        // Skip outgoing messages in self chat if they were sent by the bot socket
-        if (fromMe && botSentMsgIds.has(msgId)) continue;
+        const isSelfChat = isOwnerChatId(chatId) || (!isClientChat && fromMe);
 
         const senderName = isSelfChat ? "Shubham (Owner)" : (msg.pushName || chatId.split("@")[0]);
 
