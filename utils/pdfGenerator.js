@@ -433,45 +433,44 @@ function generateQuotationPDF(data = {}) {
       curY += termsH + 10;
       const signH = 68;
 
-      // --- Left Box: FOR SHUBDEEP LABS ---
-      doc.roundedRect(24, curY, halfWidth, signH, 5).fillAndStroke("#ffffff", cardBorder);
-
-      // Seal circle with SL logo
-      if (fs.existsSync(logoPath)) {
+      // --- Left Box: FOR SHUBDEEP LABS (Official 3D Gold Seal & Signature Card) ---
+      const signCardPath = path.join(__dirname, "..", "assets", "signature_card.png");
+      if (fs.existsSync(signCardPath)) {
         doc.save();
-        doc.circle(46, curY + 34, 16).stroke(goldAccent);
-        doc.image(logoPath, 34, curY + 22, { width: 24, height: 24 });
+        doc.image(signCardPath, 24, curY, { width: halfWidth, height: signH });
         doc.restore();
+      } else {
+        doc.roundedRect(24, curY, halfWidth, signH, 5).fillAndStroke("#ffffff", cardBorder);
+
+        // Seal circle with SL logo
+        if (fs.existsSync(logoPath)) {
+          doc.save();
+          doc.circle(46, curY + 34, 16).stroke(goldAccent);
+          doc.image(logoPath, 34, curY + 22, { width: 24, height: 24 });
+          doc.restore();
+        }
+
+        doc.fillColor(purpleDark).fontSize(7.2).font("Helvetica-Bold")
+          .text("FOR SHUBDEEP LABS:", 68, curY + 8);
+        doc.fillColor(emeraldGreen).fontSize(7.2).font("Helvetica-Bold")
+          .text("[OFFICIALLY VERIFIED & APPROVED]", 68, curY + 18);
+        doc.fillColor(textSecondary).fontSize(6.8).font("Helvetica")
+          .text("Shubham Vernekar", 68, curY + 29);
+        doc.fillColor(textSecondary).fontSize(6.5).font("Helvetica")
+          .text("(Founder & Principal Architect)", 68, curY + 38);
+
+        // Cursive handwritten script signature
+        doc.font("Times-Italic").fontSize(13).fillColor("#1e1b4b")
+          .text("Shubham Vernekar", 68, curY + 48);
+
+        // Gold underline stroke
+        doc.save();
+        doc.lineWidth(1.2).strokeColor(goldAccent);
+        doc.moveTo(68, curY + 62).lineTo(150, curY + 62).stroke();
+        doc.restore();
+
+        doc.font("Helvetica");
       }
-
-      doc.fillColor(purpleDark).fontSize(7.2).font("Helvetica-Bold")
-        .text("FOR SHUBDEEP LABS:", 68, curY + 8);
-      doc.fillColor(emeraldGreen).fontSize(7.2).font("Helvetica-Bold")
-        .text("[OFFICIALLY VERIFIED & APPROVED]", 68, curY + 18);
-      doc.fillColor(textSecondary).fontSize(6.8).font("Helvetica")
-        .text("Shubham Vernekar (Founder & Principal Architect)", 68, curY + 29);
-
-      // Signature: Cursive handwritten styling with authentic pen flourish stroke
-      doc.font("Times-Italic").fontSize(14).fillColor("#1e1b4b")
-        .text("Shubham Vernekar", 68, curY + 41);
-
-      // Signature ink flourish stroke
-      doc.save();
-      doc.lineWidth(1.1).strokeColor("#1e1b4b");
-      doc.moveTo(68, curY + 54)
-        .bezierCurveTo(88, curY + 56, 120, curY + 53, 150, curY + 55)
-        .bezierCurveTo(165, curY + 56, 180, curY + 52, 188, curY + 54)
-        .stroke();
-      doc.lineWidth(0.8).strokeColor("#4c1d95");
-      doc.moveTo(72, curY + 56)
-        .bezierCurveTo(105, curY + 58, 145, curY + 57, 182, curY + 55)
-        .bezierCurveTo(192, curY + 54, 198, curY + 52, 190, curY + 57)
-        .bezierCurveTo(160, curY + 60, 110, curY + 59, 80, curY + 58)
-        .stroke();
-      doc.restore();
-
-      // Reset back to standard font
-      doc.font("Helvetica");
 
       // --- Right Box: ACCEPTED & CONFIRMED BY CLIENT ---
       doc.roundedRect(rightCardX, curY, halfWidth, signH, 5).fillAndStroke("#ffffff", cardBorder);
