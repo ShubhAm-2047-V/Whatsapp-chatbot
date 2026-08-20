@@ -1044,6 +1044,66 @@ Respond ONLY with valid JSON:
 }
 
 // ------------------------------------------------------------
+//  VISION AI INSPECTION ENGINE (Visual Media Inspector)
+// ------------------------------------------------------------
+async function inspectMediaWithVision(mediaBuffers = [], userMessage = "", history = []) {
+  if (!mediaBuffers || mediaBuffers.length === 0) return null;
+
+  const imageItems = mediaBuffers.filter(m => m.mimetype?.startsWith("image/"));
+  if (imageItems.length === 0) return null;
+
+  const prompt = `You are a specialized Vision AI Inspector for ShubDeep Labs (a software, web, and mobile app agency).
+Look at the attached image(s) and classify its visual intent.
+
+Categories:
+1. "PAYMENT_RECEIPT": A UPI / Google Pay / PhonePe / Paytm / Bank transfer payment screenshot with transaction ID or success tick.
+2. "WEBSITE_UI_WIREFRAME": A website/app design screenshot, handwritten wireframe sketch, flowchart, or Figma layout.
+3. "TECH_DOCUMENT_OR_ERROR": A photo of a screen showing programming code, compiler error, software bug, or project documentation.
+4. "PERSONAL_CASUAL_PHOTO": A selfie, photo of a person/friend/family, food, nature, meme, wallpaper, sticker, festival greeting, or casual image unrelated to software engineering.
+
+Respond ONLY with valid JSON:
+{
+  "category": "PAYMENT_RECEIPT" | "WEBSITE_UI_WIREFRAME" | "TECH_DOCUMENT_OR_ERROR" | "PERSONAL_CASUAL_PHOTO",
+  "isBusinessRelated": boolean,
+  "description": "Crisp 1-sentence visual description of what is in the image",
+  "isPaymentProof": boolean,
+  "extractedText": "Key text or numbers visible"
+}`;
+
+  try {
+    const parts = [{ text: prompt }];
+    for (const img of imageItems) {
+      parts.push({
+        inlineData: {
+          mimeType: img.mimetype || "image/jpeg",
+          data: img.buffer.toString("base64"),
+        },
+      });
+    }
+
+    const data = await executeGeminiRequest({
+      contents: [{ role: "user", parts }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 300,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const parsed = cleanAndParseJson(raw);
+    if (parsed && parsed.category) {
+      console.log(`👁️ [VISION AI INSPECTED]: Category: ${parsed.category} | Business: ${parsed.isBusinessRelated} | "${parsed.description}"`);
+      return parsed;
+    }
+  } catch (e) {
+    console.warn("⚠️ Vision AI inspection note:", e.message);
+  }
+
+  return null;
+}
+
+// ------------------------------------------------------------
 //  GEMINI MULTIMODAL ENGINE (Text, Vision & Voice Notes)
 // ------------------------------------------------------------
 async function askGemini(userMessage, history = [], options = {}) {
@@ -1455,23 +1515,36 @@ async function processBatchedMessages(chatId, sock) {
       return;
     }
 
-    // 1. Intent Classification Check
+    // 1. Vision AI Media Inspection (if images attached)
+    let visionInspection = null;
+    if (mediaItems.length > 0) {
+      visionInspection = await inspectMediaWithVision(mediaItems, combinedText, history);
+      if (visionInspection) {
+        if (visionInspection.category === "PERSONAL_CASUAL_PHOTO" && history.length === 0) {
+          console.log(`⏩ [SKIPPED] Vision AI detected personal/casual image from ${senderName}: "${visionInspection.description}"`);
+          return;
+        }
+      }
+    }
+
+    // 2. Intent Classification Check
     const classification = await classifyMessageIntent(combinedText, history);
 
-    if (!classification.isBusinessRelated) {
+    if (!classification.isBusinessRelated && (!visionInspection || !visionInspection.isBusinessRelated)) {
       console.log(`⏩ [SKIPPED] Personal chat detected from ${senderName}: "${combinedText}" (Reason: ${classification.reason})`);
       return;
     }
 
     const cleanLower = combinedText.toLowerCase();
 
-    // 2. Mark message as read immediately
+    // 3. Mark message as read immediately
     try {
       if (lastMsgKey && activeSock) await activeSock.readMessages([lastMsgKey]);
     } catch (e) {}
 
-    // 3. Dynamic Action A: Payment Confirmation & Deal Won
-    const isPaymentCompleted = /payment (?:is )?(?:done|completed|sent|transferred|successful|hogaya|zala|succesful)|(?:i have|maine) (?:paid|done payment|sent money)|screenshot|paisa pathavla|transaction (?:id|done|complete)|done yarr|payment done/i.test(cleanLower);
+    // 4. Dynamic Action A: Payment Confirmation & Deal Won
+    const isPaymentCompleted = (visionInspection && visionInspection.isPaymentProof) ||
+      /payment (?:is )?(?:done|completed|sent|transferred|successful|hogaya|zala|succesful)|(?:i have|maine) (?:paid|done payment|sent money)|screenshot|paisa pathavla|transaction (?:id|done|complete)|done yarr|payment done/i.test(cleanLower);
     const isPaymentRequest = !isPaymentCompleted && /(?:get|send|share|give|want|show|need|kiti)?\s*(?:payment|upi|qr|scanner|barcode|deposit|google pay|phonepe|paytm|advance|how to pay)/i.test(cleanLower);
     const isProposalPDFRequest = /(?:send|give|share|want|need|get)?\s*(?:in\s+)?pdf(?:\s+form|\s+format|\s+copy)?|download (?:pdf|proposal|agreement)|proposal pdf|quotation pdf/i.test(cleanLower);
 
