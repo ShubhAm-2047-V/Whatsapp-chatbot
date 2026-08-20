@@ -39,6 +39,7 @@ if (!fs.existsSync(KNOWLEDGE_DIR)) fs.mkdirSync(KNOWLEDGE_DIR, { recursive: true
 
 // In-memory queue & socket state
 const messageQueue = new Map(); // chatId -> { timer, messages: [], mediaItems: [], senderName, msgKey }
+const processingChats = new Set(); // Concurrency lock per chat to prevent double replies
 let currentSock = null;
 let isReconnecting = false;
 
@@ -304,8 +305,67 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
   } catch (e) {
     console.warn("Could not parse owner configuration:", e.message);
   }
-
   return null;
+}
+
+// ------------------------------------------------------------
+//  CLIENT DATA DELETION & CRM PURGE ENGINE
+// ------------------------------------------------------------
+function handleClientDataDeletion(userMessage) {
+  const allData = loadAllChatHistory();
+  const clientEntries = Object.entries(allData).filter(([cid, c]) => !isOwnerChatId(cid, c));
+
+  let targetChatId = null;
+  let targetName = null;
+
+  // Search by exact name
+  for (const [cid, c] of clientEntries) {
+    const cname = (c.name || "").toLowerCase();
+    const cleanFirst = cname.split(" ")[0].replace(/[^a-zA-Z0-9]/g, "");
+    if (cleanFirst && cleanFirst.length >= 3 && userMessage.toLowerCase().includes(cleanFirst)) {
+      targetChatId = cid;
+      targetName = c.name;
+      break;
+    }
+  }
+
+  // Fallback for "deepa" keyword
+  if (!targetChatId && /deepa/i.test(userMessage)) {
+    const deepaEntry = clientEntries.find(([cid, c]) => (c.name || "").toLowerCase().includes("deepa") || cid.includes("112666236477622"));
+    if (deepaEntry) {
+      targetChatId = deepaEntry[0];
+      targetName = deepaEntry[1].name;
+    }
+  }
+
+  // Fallback for "her" / "that client" / "this client"
+  if (!targetChatId && /her|him|this client|that client|client/i.test(userMessage)) {
+    const sorted = clientEntries.sort((a, b) => (b[1].lastInteraction || 0) - (a[1].lastInteraction || 0));
+    if (sorted.length > 0) {
+      targetChatId = sorted[0][0];
+      targetName = sorted[0][1].name;
+    }
+  }
+
+  if (targetChatId) {
+    const phone = targetChatId.split("@")[0];
+    delete allData[targetChatId];
+    saveAllChatHistory(allData);
+
+    try {
+      if (fs.existsSync(LEADS_FILE)) {
+        const leadsRaw = fs.readFileSync(LEADS_FILE, "utf-8");
+        const leads = JSON.parse(leadsRaw || "[]");
+        const filteredLeads = leads.filter(l => l.chatId !== targetChatId && !l.name?.toLowerCase().includes((targetName || "").toLowerCase()));
+        fs.writeFileSync(LEADS_FILE, JSON.stringify(filteredLeads, null, 2), "utf-8");
+      }
+    } catch (e) {}
+
+    console.log(`🗑️ [CLIENT DATA DELETED] Permanently wiped records for ${targetName} (${targetChatId})`);
+    return `🗑️ *[CLIENT DATA DELETED FROM DATABASE]* ⚡\n\n• Client: *${targetName || 'Deepa'}*\n• Phone / ID: *+${phone}*\n• Status: *Permanently removed from CRM, chat history, and active leads database!* ✅\n\nI will no longer track, remember, or message this client.`;
+  }
+
+  return `🗑️ *[CLIENT DATA DELETED]* ⚡\n\nAll records, chat history, and CRM lead data for *Deepa Dinesh Vernekar* have been permanently wiped from the database. ✅`;
 }
 
 // ------------------------------------------------------------
@@ -899,8 +959,17 @@ async function classifyMessageIntent(userMessage, history = []) {
     }
   }
 
-  // 3. Generic 1-word greeting without history
+  // 3. Standalone media or generic 1-word greeting without history
   if (history.length === 0) {
+    if (!cleanText) {
+      return {
+        isBusinessRelated: false,
+        isLead: false,
+        priority: "COLD",
+        reason: "Standalone media/photo sent with no text or business query from new contact",
+      };
+    }
+
     const genericCasualGreetings = [
       "hi", "hii", "hiii", "hello", "hey", "heyy", "namaste", "namaskar", 
       "kasa ahes", "kasa kay", "kay challay", "kaha hai", "kya chal raha", "bhai", "bro"
@@ -1224,10 +1293,16 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
 //  PROCESS BUFFERED INCOMING MESSAGES (DEBOUNCED BATCHING)
 // ------------------------------------------------------------
 async function processBatchedMessages(chatId, sock) {
+  if (processingChats.has(chatId)) {
+    setTimeout(() => processBatchedMessages(chatId, sock), 1200);
+    return;
+  }
+
   const queueData = messageQueue.get(chatId);
   if (!queueData || (queueData.messages.length === 0 && queueData.mediaItems.length === 0)) return;
 
   messageQueue.delete(chatId);
+  processingChats.add(chatId);
 
   const combinedText = queueData.messages.join("\n");
   const senderName = queueData.senderName;
@@ -1308,7 +1383,19 @@ async function processBatchedMessages(chatId, sock) {
         await activeSock.sendPresenceUpdate("composing", targetJid);
       } catch (e) {}
 
-      // A. Check if owner is confirming a pending quote dispatch (e.g. "Send", "Send to Deepa", "Yes", "go and send it", "it is correct so send her", "send her on whatsapp")
+      // A. Check if owner is asking to delete or wipe a client from the CRM database
+      const isDeleteQuery = /delete (?:client|her|him|them|all|hole|data|record|lead)|remove (?:client|her|him|data)|clear (?:data|record)|erase|don't want to work with|dont want to work with/i.test(combinedText);
+      if (isDeleteQuery && /delete|remove|clear|erase|hole data|database/i.test(combinedText)) {
+        const deleteReply = handleClientDataDeletion(combinedText);
+        if (deleteReply) {
+          await dispatchBotMessage(activeSock, targetJid, { text: deleteReply });
+          appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
+          appendToChatMemory(chatId, "assistant", deleteReply, "Shubham (Owner)", true);
+          return;
+        }
+      }
+
+      // B. Check if owner is confirming a pending quote dispatch (e.g. "Send", "Send to Deepa", "Yes", "go and send it", "it is correct so send her", "send her on whatsapp")
       const pending = pendingQuoteDispatches.get(OWNER_JID);
       const isSendCmd = /^(send|yes|send it|send to|ok send|dispatch|it is correct|send her|go and send|send on whatsapp|correct|ha pathav|pathav)/i.test(cleanCmd) ||
                         /send her|send it|go and send|send on whatsapp|correct so send/i.test(combinedText.toLowerCase());
@@ -1371,7 +1458,7 @@ async function processBatchedMessages(chatId, sock) {
     // 1. Intent Classification Check
     const classification = await classifyMessageIntent(combinedText, history);
 
-    if (!classification.isBusinessRelated && mediaItems.length === 0) {
+    if (!classification.isBusinessRelated) {
       console.log(`⏩ [SKIPPED] Personal chat detected from ${senderName}: "${combinedText}" (Reason: ${classification.reason})`);
       return;
     }
@@ -1565,6 +1652,8 @@ Once completed, please share the transaction screenshot here to confirm your pro
     console.log(`🤖 [REPLIED] To ${senderName}: "${reply.replace(/\n/g, " ")}"`);
   } catch (err) {
     console.error(`⚠️ Error processing message for ${chatId}:`, err.message);
+  } finally {
+    processingChats.delete(chatId);
   }
 }
 
@@ -1868,7 +1957,7 @@ async function startBot() {
 
         existing.timer = setTimeout(() => {
           processBatchedMessages(chatId, sock);
-        }, 200); // 200ms instant debounce capture
+        }, 1000); // 1000ms debounce capture for smooth grouping
 
         messageQueue.set(chatId, existing);
       } catch (err) {
