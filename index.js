@@ -1077,6 +1077,17 @@ async function classifyMessageIntent(userMessage, history = []) {
     }
   }
 
+  // 5. Fast Direct Business Match (Instant zero-latency classification)
+  const isDirectBusinessQuery = /website|web|app|software|business|service|process|develop|price|cost|quote|budget|project|ecommerce|store|shop|build|create|work|help|interested|looking|details|info/i.test(cleanText);
+  if (isDirectBusinessQuery) {
+    return {
+      isBusinessRelated: true,
+      isLead: true,
+      priority: "HOT",
+      reason: "Direct software/business inquiry keywords detected",
+    };
+  }
+
   const apiKey = (process.env.GEMINI_API_KEY || GEMINI_API_KEY || "").trim();
   const knowledge = loadDynamicKnowledge();
   const prompt = `You are a strict AI intent classifier for the WhatsApp business account of "Shubdeep Labs".
@@ -1128,11 +1139,14 @@ Respond ONLY with valid JSON:
     };
   } catch (e) {}
 
+  // Deterministic fallback when Gemini API is rate-limited or offline
+  const hasBusinessKeyword = /website|web|app|software|business|service|process|develop|price|cost|quote|budget|project|ecommerce|store|shop|build|create|work|help|interested|looking|details|info|hi|hello|hey|namaste|namaskar/i.test(cleanText);
+
   return {
-    isBusinessRelated: history.length > 0,
-    isLead: false,
-    priority: "WARM",
-    reason: history.length > 0 ? "Defaulted to reply with history context" : "Fallback safe skip",
+    isBusinessRelated: hasBusinessKeyword || history.length > 0 || cleanText.length > 5,
+    isLead: hasBusinessKeyword,
+    priority: hasBusinessKeyword ? "HOT" : "WARM",
+    reason: hasBusinessKeyword ? "Local keyword matched business inquiry" : "Defaulted to assist client",
   };
 }
 
