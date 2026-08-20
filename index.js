@@ -1444,6 +1444,15 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
   const firstName = (memory.name || senderName || "there").split(" ")[0];
   const noFounder = memory.founderHandoffDeclined || /(?:don't|dont|do not)\s+(?:want|need)\s+(?:to\s+)?(?:speak|talk|contact|call|referral|connect)\s+(?:with\s+)?(?:the\s+)?founder|don't want (?:the )?founder|not a referral|don't need (?:the )?founder|not referral/i.test(text);
 
+  // 0. Initial Contact Greeting & Discovery (When name is unknown / first contact)
+  if (
+    (!memory.name || memory.name === senderName || history.length <= 1) &&
+    /hello|hi|namaskar|namaste|hey|interested in (?:getting|building|developing)|how (?:your|does) (?:process|service) work/i.test(text) &&
+    !/my name is|naam|call me|i am|i'm/i.test(text)
+  ) {
+    return `Namaskar! 👋 Welcome to **ShubDeep Labs**! ✨ We build high-performance custom web applications, mobile apps, and e-commerce platforms with full source code ownership. 🚀\n\nTo help you with the best solution, could you please tell me your **name** and what type of business you run? 😊`;
+  }
+
   // 1. Explicit Direct YES / NO on Recurring Cloud Plan Pricing
   if (
     /669.*(?:monthly|recurring|per month|every month|paid every)/i.test(text) ||
