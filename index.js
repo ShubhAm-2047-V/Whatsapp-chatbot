@@ -697,7 +697,7 @@ function appendToChatMemory(chatId, role, text, senderName = "", isBusiness = tr
 
   if (role === "user" && text) {
     const explicitMatch = text.match(/(?:my name is|naam|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
-    const iAmMatch = text.match(/^(?:hi|hello|hey|namaste|namaskar)?[,.\s]*(?:i am|i'm)\s+([A-Z][a-z]+)\b/i);
+    const iAmMatch = text.match(/^(?:hi|hello|hey|namaste|namaskar)?[!?,.\s]*(?:i am|i'm)\s+([A-Z][a-z]+)\b/i);
     const matchedName = explicitMatch ? explicitMatch[1].trim() : (iAmMatch ? iAmMatch[1].trim() : null);
 
     if (matchedName && !invalidNames.has(matchedName.toLowerCase())) {
@@ -705,7 +705,7 @@ function appendToChatMemory(chatId, role, text, senderName = "", isBusiness = tr
     }
 
     // Track if client declined speaking with founder
-    if (/(?:don't|dont|do not)\s+(?:want|need)\s+(?:to\s+)?(?:speak|talk|contact|call|referral|connect)\s+(?:with\s+)?(?:the\s+)?founder|don't want (?:the )?founder|not a referral|don't need (?:the )?founder/i.test(text)) {
+    if (/(?:don't|dont|do not)\s+(?:want|need)\s+(?:to\s+)?(?:speak|talk|contact|call|referral|connect)\s*(?:with|to)?\s*(?:the\s+)?founder|don't want (?:the )?founder|not a referral|don't need (?:the )?founder/i.test(text)) {
       chat.founderHandoffDeclined = true;
     }
   }
@@ -1447,7 +1447,7 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
   // 0. Initial Contact Greeting & Discovery (When name is unknown / first contact)
   if (
     (!memory.name || memory.name === senderName || history.length <= 1) &&
-    /hello|hi|namaskar|namaste|hey|interested in (?:getting|building|developing)|how (?:your|does) (?:process|service) work/i.test(text) &&
+    /\b(hello|hi|hii|hiii|hey|heyy|namaste|namaskar)\b|interested in (?:getting|building|developing)|how (?:your|does) (?:process|service) work/i.test(text) &&
     !/my name is|naam|call me|i am|i'm/i.test(text)
   ) {
     return `Namaskar! 👋 Welcome to **ShubDeep Labs**! ✨ We build high-performance custom web applications, mobile apps, and e-commerce platforms with full source code ownership. 🚀\n\nTo help you with the best solution, could you please tell me your **name** and what type of business you run? 😊`;
@@ -1470,7 +1470,12 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `No. Hosting and domain are charged separately through our monthly cloud deployment plans (starting at ₹449/month) or can be bundled into your final project quotation. The ₹9,999–₹14,999 estimate covers the complete one-time custom website design and development! 🚀✨`;
   }
 
-  // 3. Specific Plan Feature Question (e.g. Professional Plan custom domain)
+  // 3. Payment Gateway / UPI Question
+  if (/payment gateway|upi|gpay|phonepe|online payments?.*included/i.test(text)) {
+    return `Yes! Online payment gateway integration (Google Pay, PhonePe, Paytm, Cards & BHIM UPI) is **fully included** within the ₹9,999–₹14,999 website development package with zero extra integration charges! 💳✨`;
+  }
+
+  // 4. Specific Plan Feature Question (e.g. Professional Plan custom domain)
   if (/does (?:the )?professional (?:plan )?include (?:custom )?domain/i.test(text)) {
     return `Yes! The **Professional Plan (₹669/mo)** includes a custom domain, cloud hosting, dedicated maintenance, website security (SSL + Firewall), and 2 medium changes per month. ⭐`;
   }
@@ -1489,13 +1494,16 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `Here is the complete breakdown of our 4 official **ShubDeep Labs Cloud Deployment Plans**: ☁️✨\n\n1️⃣ **Essential Plan — ₹449 / month**\n• Domain, Hosting, Monthly Maintenance, Website Security (SSL + Firewall).\n\n2️⃣ **Advanced Plan — ₹559 / month**\n• Custom Domain, Hosting, Monthly Maintenance, More Security, and 1 Small Custom Change in project per month.\n\n3️⃣ **Professional Plan — ₹669 / month** ⭐ *(Recommended for E-Commerce)*\n• Custom Domain, Hosting, Special Maintenance, Special Security, and 2 Medium Changes in project per month.\n\n4️⃣ **Ultimate Plan — ₹779 / month**\n• Custom Domain with Email, Hosting, Ultimate Monthly Maintenance, Ultimate Security, and 2 Ultimate Changes in project per month.\n\nWhich plan sounds best for your project, ${firstName}? 😊🚀`;
   }
 
-  // 6. Recommendation & Project Discovery (e.g. clothing store, jewellery store, what type of website)
+  // 7. Recommendation & Project Discovery (e.g. clothing store, jewellery store, what type of website)
   if (
-    /recommend|what (?:type|kind) of (?:website|store|app)|which website|suggest|clothing|store|shop|online business/i.test(text) &&
+    /recommend|what (?:type|kind) of (?:website|store|app|setup)|which website|suggest|jewellery|clothing|store|shop|online business/i.test(text) &&
     !/price|cost|quote|budget|kiti/i.test(text)
   ) {
-    const bizType = text.includes("clothing") ? "clothing business" : "business";
-    return `Wonderful to meet you, ${firstName}! 😊🙌 For a ${bizType} looking to expand beyond Instagram and WhatsApp, we recommend a **Full-Stack E-Commerce Web Store**! 🛍️✨\n\nIt allows your customers to browse product catalogs, select sizes/variants, and place orders directly via WhatsApp or online checkout, complete with an easy-to-use admin panel for you to manage products and track orders. 📦🚀\n\nWould you like to know the ballpark estimate for such a project? 😊`;
+    const bizType = text.includes("jewellery") ? "handmade jewellery business" : (text.includes("clothing") ? "clothing business" : "business");
+    const hasExtractedName = !!memory.name;
+    const greeting = hasExtractedName ? `Wonderful to meet you, ${firstName}! 😊🙌` : `Namaskar! 👋`;
+    const namePrompt = !hasExtractedName ? "\n\nTo help you with the best solution, could you please tell me your **name** first? 😊" : "\n\nWould you like to know the ballpark estimate for such a project? 😊";
+    return `${greeting} For a ${bizType} looking to expand online, we recommend a **Full-Stack E-Commerce Web Store**! 🛍️✨\n\nIt allows your customers to browse product catalogs, select sizes/variants, and place orders directly via WhatsApp or online checkout, complete with an easy-to-use admin panel for you to manage products and track orders. 📦🚀${namePrompt}`;
   }
 
   // 7. Pricing / Estimate general inquiry
