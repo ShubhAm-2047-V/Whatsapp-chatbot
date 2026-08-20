@@ -26,7 +26,7 @@ const OWNER_PHONE = "+91 90288 33275";
 const OWNER_JID = "919028833275@s.whatsapp.net";
 const IGNORE_GROUPS = true;
 const FILTER_PERSONAL_MESSAGES = true;
-const MAX_HISTORY_TURNS = 20;
+const MAX_HISTORY_TURNS = 50; // Deep long-term conversation memory (50 turns)
 
 const DATA_DIR = path.join(__dirname, "data");
 const KNOWLEDGE_DIR = path.join(__dirname, "data", "knowledge");
@@ -558,6 +558,13 @@ function appendToChatMemory(chatId, role, text, senderName = "", isBusiness = tr
     priority: "WARM",
     followUpCount: 0,
     lastFollowUp: null,
+    projectRequirement: "",
+    dealStatus: "INQUIRY",
+    approvedQuote: null,
+    paymentStatus: "PENDING",
+    hostingPlan: "Professional Plan (₹669/mo)",
+    deadline: "Standard (2–3 Weeks)",
+    keyFacts: [],
     messages: [],
   };
 
@@ -566,6 +573,42 @@ function appendToChatMemory(chatId, role, text, senderName = "", isBusiness = tr
   chat.lastSender = role;
   if (isBusiness) chat.isBusinessChat = true;
   if (role === "user") chat.followUpCount = 0;
+
+  // Auto-extract and enrich structured memory facts
+  if (role === "user" && text) {
+    const lower = text.toLowerCase();
+
+    // 1. Deadline / Express Sprint Extraction
+    if (/saturday|sunday|monday|tuesday|wednesday|thursday|friday|tomorrow|urgent|express|this week|\b\d{1,2}\s+(?:days?|weeks?|months?)\b/i.test(lower)) {
+      if (/saturday/i.test(lower)) chat.deadline = "Saturday (Express Sprint Requested)";
+      else if (/tomorrow/i.test(lower)) chat.deadline = "Tomorrow (Urgent Express)";
+      else if (/this week/i.test(lower)) chat.deadline = "This Week (Express Sprint)";
+      else if (/express/i.test(lower)) chat.deadline = "Express Expedited Delivery";
+    }
+
+    // 2. Hosting & Maintenance Plan Selection
+    if (/professional|essential|advanced|ultimate|669|449|559|779/i.test(lower)) {
+      if (/professional|669/i.test(lower)) chat.hostingPlan = "Professional Plan (₹669/mo) ⭐";
+      else if (/essential|449/i.test(lower)) chat.hostingPlan = "Essential Plan (₹449/mo)";
+      else if (/advanced|559/i.test(lower)) chat.hostingPlan = "Advanced Plan (₹559/mo)";
+      else if (/ultimate|779/i.test(lower)) chat.hostingPlan = "Ultimate Plan (₹779/mo)";
+    }
+
+    // 3. Key Project Facts & Preferences Memory
+    if (!Array.isArray(chat.keyFacts)) chat.keyFacts = [];
+    if (/gold|jewel|rates|cart|store/i.test(lower) && !chat.keyFacts.some(f => /gold/i.test(f))) {
+      chat.keyFacts.push("Building Gold & Jewellery E-Commerce website with live daily rates & cart");
+    }
+    if (/saturday/i.test(lower) && !chat.keyFacts.some(f => /saturday/i.test(f))) {
+      chat.keyFacts.push("Requested Saturday delivery sprint");
+    }
+    if (/fixed/i.test(lower) && !chat.keyFacts.some(f => /fixed/i.test(f))) {
+      chat.keyFacts.push("Accepted fixed pricing policy for monthly hosting plans");
+    }
+    if (chat.keyFacts.length > 10) {
+      chat.keyFacts = chat.keyFacts.slice(-10);
+    }
+  }
 
   chat.messages.push({
     role,
@@ -940,7 +983,7 @@ async function askGemini(userMessage, history = [], options = {}) {
     throw new Error("Gemini API key is not configured! Please add your key in .env or config.js");
   }
 
-  const { timeGap, clientName, mediaBuffers = [], isOwner = false, approvedQuote = null } = options;
+  const { timeGap, clientName, mediaBuffers = [], isOwner = false, approvedQuote = null, clientMemory = null } = options;
   const knowledge = loadDynamicKnowledge();
 
   let systemInstruction = "";
@@ -961,6 +1004,11 @@ async function askGemini(userMessage, history = [], options = {}) {
 `============================================================
 CLIENT RECORD: ${c.name || "Client"} (+${phone})
 • Priority: ${c.priority || "WARM"} | Lead Status: ${c.isBusinessChat ? "Active Business Lead 🔥" : "Casual Chat"}${quoteNote}
+• Project: ${c.projectRequirement || "Custom Web Application"}
+• Deal Status: ${c.dealStatus || "INQUIRY"} | Advance: ${c.paymentStatus || "Pending"}
+• Hosting Plan: ${c.hostingPlan || "Professional Plan (₹669/mo)"}
+• Deadline / Sprints: ${c.deadline || "Standard (2-3 Weeks)"}
+• Key Facts: ${c.keyFacts && c.keyFacts.length > 0 ? c.keyFacts.join(" | ") : "None recorded"}
 • Last Active: ${new Date(c.lastInteraction).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
 • Conversation History & Requirements Discussed:
 ${clientMsgs || "    No message history."}
@@ -1003,6 +1051,22 @@ CORE DIRECTIVES WHEN TALKING TO SHUBHAM:
 `;
     }
 
+    let memoryInstruction = "";
+    if (clientMemory) {
+      memoryInstruction = `
+\n🧠 LONG-TERM STRUCTURED CLIENT MEMORY (FROM CRM):
+• Client Name: ${clientMemory.name || clientName || 'Valued Client'}
+• Project Goal: ${clientMemory.projectRequirement || 'Custom Web Application'}
+• Deal Status: ${clientMemory.dealStatus || 'INQUIRY'}
+• Approved Investment: ${clientMemory.approvedQuote || 'Standard Scope'}
+• Advance Payment: ${clientMemory.paymentStatus || 'Pending'}
+• Selected Hosting & Maintenance Plan: ${clientMemory.hostingPlan || 'Professional Plan (₹669/mo)'}
+• Express Sprint / Timeline Constraints: ${clientMemory.deadline || 'Standard (2–3 Weeks)'}
+• Remembered Client Facts: ${clientMemory.keyFacts && clientMemory.keyFacts.length > 0 ? clientMemory.keyFacts.join(" | ") : "None recorded"}
+👉 STRICT INSTRUCTION: You already know all these facts! Never contradict or ask the client for information that is already recorded in their memory card above!
+`;
+    }
+
     let timeGapInstruction = "";
     if (timeGap) {
       timeGapInstruction = `
@@ -1026,6 +1090,7 @@ CORE DIRECTIVES WHEN TALKING TO SHUBHAM:
 
 Your goal is to talk like a warm, engaging human team member and guide the customer STEP-BY-STEP through a natural interactive conversation. 
 ${approvedQuoteInstruction}
+${memoryInstruction}
 ${timeGapInstruction}
 ${nightInstruction}
 
@@ -1471,7 +1536,7 @@ Once completed, please share the transaction screenshot here to confirm your pro
       await activeSock.sendPresenceUpdate("composing", chatId);
     } catch (e) {}
 
-    // 6. Ask Gemini (with Multimodal Text/Vision/Audio)
+    // 6. Ask Gemini (with Multimodal Text/Vision/Audio & Long-Term Memory)
     let reply;
     try {
       reply = await askGemini(combinedText, history, {
@@ -1479,6 +1544,7 @@ Once completed, please share the transaction screenshot here to confirm your pro
         clientName: memory.name || senderName,
         mediaBuffers: mediaItems,
         approvedQuote: memory.approvedQuote || null,
+        clientMemory: memory,
       });
     } catch (err) {
       console.warn("⚠️ Gemini API error, engaging Local Knowledge Engine:", err.message);
