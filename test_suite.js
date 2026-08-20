@@ -86,6 +86,15 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `Yes. ₹669 is the monthly recurring price for the **Professional Cloud Deployment Plan**, and it is separate from the one-time website development cost unless specifically included in your custom quotation. ☁️✨`;
   }
 
+  // 3. Payment Gateway / UPI Question (Asking if it is included or extra)
+  if (
+    !/how much|price|cost|quote|ballpark|fit within/i.test(text) &&
+    (/(?:is|are|does|do|what about).*(?:payment gateway|upi|gpay|phonepe|online payments?).*(?:included|extra|charges?|supported|available)/i.test(text) ||
+     /(?:payment gateway|upi|gpay).*(?:included|extra|additional)/i.test(text))
+  ) {
+    return `Yes! Online payment gateway integration (Google Pay, PhonePe, Paytm, Cards & BHIM UPI) is **fully included** within the ₹9,999–₹14,999 website development package with zero extra integration charges! 💳✨`;
+  }
+
   // 2. Explicit Question: Is Hosting/Domain Included or Separate from Development?
   if (
     /(?:hosting|domain).*(?:separate|included|extra|charged separately)/i.test(text) ||
@@ -122,8 +131,8 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `Wonderful to meet you, ${firstName}! 😊🙌 For a ${bizType} looking to expand beyond Instagram and WhatsApp, we recommend a **Full-Stack E-Commerce Web Store**! 🛍️✨\n\nIt allows your customers to browse product catalogs, select sizes/variants, and place orders directly via WhatsApp or online checkout, complete with an easy-to-use admin panel for you to manage products and track orders. 📦🚀\n\nWould you like to know the ballpark estimate for such a project? 😊`;
   }
 
-  // 8. Pricing / Estimate Inquiry (Context-Aware based on Project Category)
-  if (/price|cost|quote|cotation|kiti|charges|rate|ballpark|how much/i.test(text)) {
+  // 8. Pricing / Estimate Inquiry (Dynamic & Requirement-Customized)
+  if (/price|cost|quote|cotation|kiti|charges|rate|ballpark|how much|fit within|increase the cost/i.test(text)) {
     const founderCTA = noFounder ? "" : `\n\nOur founder, **Shubham Vernekar (+91 90288 33275)**, can share the exact fixed proposal with you whenever you're ready! 📞🤝`;
 
     // A. Academic / College Projects
@@ -132,16 +141,34 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     }
 
     // B. Basic Landing Page / Business Portfolio Website
-    if (/landing page|starter website|single page|portfolio website|simple website|business profile/i.test(text) && !/e-?commerce|store|shop|cart/i.test(text)) {
-      return `Hey ${firstName}! 👋 For a clean, high-speed **Starter Business Website / Landing Page** (with custom responsive design, WhatsApp CTA, contact forms & SEO), development typically starts roughly around **₹3,999 to ₹7,999** ✨ depending on the exact sections and features!${founderCTA}`;
+    if (/landing page|starter website|single page|portfolio website|simple website|business profile/i.test(text) && !/e-?commerce|store|shop|cart|login|admin/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a clean, high-speed **Starter Business Website / Landing Page** (1–3 sections, WhatsApp CTA, contact forms & SEO), development typically starts roughly around **₹3,999 to ₹6,999** ✨ depending on the exact sections and animations!${founderCTA}`;
     }
 
-    // C. Mobile App Development (Android / iOS)
-    if (/android app|ios app|mobile app|flutter/i.test(text) && !/website.*only/i.test(text)) {
-      return `Hey ${firstName}! 👋 For a dedicated cross-platform **Mobile Application (Android / iOS)** with backend API, user authentication, and admin panel, development typically starts roughly around **₹12,999 to ₹25,000+** ✨ depending on features and complexity!${founderCTA}`;
+    // C. Multi-Page Corporate / Service Business Site (e.g. clinic, consulting, real estate, company)
+    if (/corporate|company website|service website|hospital|clinic|doctor|consulting|real estate/i.test(text) && !/shop|cart|e-?commerce/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a multi-page **Corporate Business & Services Website** (5–8 pages, service catalog, appointment/booking desk, team profiles & local SEO), development typically starts roughly around **₹6,999 to ₹9,999**! 🏢✨${founderCTA}`;
     }
 
-    // D. Full-Stack E-Commerce Web Store / Dynamic Web App (Default for Stores)
+    // D. Advanced E-Commerce with Login, Filters, Order Tracking, Custom Design (Scope Increase Inquiry)
+    if (
+      /login|auth|filter|search|tracking|custom design|inventory/i.test(text) &&
+      /fit within|increase|higher end|extra cost/i.test(text)
+    ) {
+      return `Hey ${firstName}! 👋 Yes, features like **customer login, product search & filters, order tracking, basic SEO, and a custom design** fit towards the higher end of our e-commerce range—roughly around **₹12,999 to ₹14,999** ✨ because of the secure user database, authentication system, and custom UI components!${founderCTA}`;
+    }
+
+    // E. Combined Web Store + Mobile App (Both Web & App)
+    if ((/android|ios|mobile app/i.test(text) && /website|store|web/i.test(text)) || /both/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a combined **Full-Stack Web Store + Dedicated Android Mobile App** connected to the same shared database and admin panel, development typically starts roughly around **₹22,000 to ₹28,000** ✨ (Website: ~₹11k–₹13k + Mobile App: ~₹11k–₹15k)!${founderCTA}`;
+    }
+
+    // F. Standalone Mobile App Development (Android / iOS)
+    if (/android app|ios app|mobile app|flutter/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a dedicated cross-platform **Mobile Application (Android / iOS)** with backend API, user authentication, and admin panel, development typically starts roughly around **₹12,999 to ₹22,000+** ✨ depending on features and complexity!${founderCTA}`;
+    }
+
+    // G. Standard E-Commerce Web Store (Default for Stores)
     return `Hey ${firstName}! 👋 For a custom **Full-Stack E-Commerce Store or Dynamic Web Application** (product catalog, shopping cart, WhatsApp checkout, payment gateway & admin dashboard), development typically starts roughly around **₹9,999 to ₹14,999** ✨ depending on the exact design and integrations needed.${founderCTA}`;
   }
 
@@ -286,25 +313,25 @@ runTest("TEST 14: Academic Project Pricing -> Quotes ₹1,999 to ₹3,999+ range
 });
 
 // TEST 15: Starter Landing Page Pricing Context
-runTest("TEST 15: Simple Landing Page Pricing -> Quotes ₹3,999 to ₹7,999 range", () => {
+runTest("TEST 15: Simple Landing Page Pricing -> Quotes ₹3,999 to ₹6,999 range", () => {
   const res = getLocalKnowledgeFallback(
     "How much does a simple single page landing page website cost?",
     [],
     "Amit",
     { name: "Amit" }
   );
-  assert.strictEqual(res.includes("₹3,999 to ₹7,999"), true, "Must quote starter landing page range");
+  assert.strictEqual(res.includes("₹3,999 to ₹6,999"), true, "Must quote starter landing page range");
 });
 
 // TEST 16: Mobile App Pricing Context
-runTest("TEST 16: Mobile App Pricing -> Quotes ₹12,999 to ₹25,000+ range", () => {
+runTest("TEST 16: Mobile App Pricing -> Quotes ₹12,999 to ₹22,000+ range", () => {
   const res = getLocalKnowledgeFallback(
     "What is the ballpark cost for a dedicated Android mobile app?",
     [],
     "Vikram",
     { name: "Vikram" }
   );
-  assert.strictEqual(res.includes("₹12,999 to ₹25,000+"), true, "Must quote mobile app range");
+  assert.strictEqual(res.includes("₹12,999 to ₹22,000+"), true, "Must quote mobile app range");
 });
 
 // TEST 17: E-Commerce Store Pricing Context
@@ -316,6 +343,40 @@ runTest("TEST 17: E-Commerce Store Pricing -> Quotes ₹9,999 to ₹14,999 range
     { name: "Deepa" }
   );
   assert.strictEqual(res.includes("₹9,999 to ₹14,999"), true, "Must quote e-commerce range");
+});
+
+// TEST 18: Advanced Feature Scope Customization (Login + Search/Filters + Order Tracking)
+runTest("TEST 18: Advanced Feature Scope Customization -> Explains ₹12,999 to ₹14,999 higher end", () => {
+  const res = getLocalKnowledgeFallback(
+    "I also want customer login, product search and filters, order tracking, and custom design. Would those fit within the range or increase the cost?",
+    [],
+    "Deepa",
+    { name: "Deepa" }
+  );
+  assert.strictEqual(res.includes("₹12,999 to ₹14,999"), true, "Must customize rate to higher end of range");
+  assert.strictEqual(res.includes("secure user database"), true, "Must explain feature rationale");
+});
+
+// TEST 19: Combined Web Store + Android App Suite
+runTest("TEST 19: Combined Web Store + Android App Suite -> Quotes ₹22,000 to ₹28,000", () => {
+  const res = getLocalKnowledgeFallback(
+    "What is the cost for both a web store and an Android mobile app connected to the same admin panel?",
+    [],
+    "Deepa",
+    { name: "Deepa" }
+  );
+  assert.strictEqual(res.includes("₹22,000 to ₹28,000"), true, "Must calculate combined web + app rate");
+});
+
+// TEST 20: Corporate Multi-Page Business Site
+runTest("TEST 20: Corporate Multi-Page Business Site -> Quotes ₹6,999 to ₹9,999", () => {
+  const res = getLocalKnowledgeFallback(
+    "What is the cost for a corporate company website for our consulting firm with 6 pages and service booking desk?",
+    [],
+    "Suresh",
+    { name: "Suresh" }
+  );
+  assert.strictEqual(res.includes("₹6,999 to ₹9,999"), true, "Must quote corporate rate");
 });
 
 console.log("\n===================================================");

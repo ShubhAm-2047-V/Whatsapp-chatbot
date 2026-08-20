@@ -1357,10 +1357,17 @@ CRITICAL CONVERSATIONAL & SAFETY RULES:
      * DO NOT refer them to Shubham Vernekar or offer a 5-minute chat!
      * Answer all their questions directly right here in the chat.
 
-5. BUDGET & SCOPE PRIORITIZATION REASONING:
-   - If the client asks for recommendations within a specific budget (e.g. ₹25,000 for both website & Android app):
-     * Reason intelligently about scope and provide actionable prioritization!
-     * Example: Recommend prioritizing the responsive e-commerce web store, product catalog, shopping cart, admin panel, and WhatsApp ordering first, and launching the mobile app in Phase 2 or with a streamlined wrapper to stay strictly within ₹25,000.
+5. DYNAMIC FEATURE-BASED PRICING & REQUIREMENT CUSTOMIZATION:
+   - When a client asks for a quote or shares specific requirements, DO NOT give a single static price to everyone. Dynamically tailor and explain the estimate based on their exact scope:
+     * **Basic Starter Website / Single Page / Portfolio (1–3 Pages, WhatsApp CTA, SEO)**: Roughly **₹3,999 – ₹6,999**
+     * **Multi-Page Corporate / Service Business Site (5–8 Pages, Services, Team, Booking Desk)**: Roughly **₹6,999 – ₹9,999**
+     * **Standard E-Commerce Web Store (Catalog, Cart, WhatsApp Direct Ordering, Basic Admin)**: Roughly **₹9,999 – ₹12,499**
+     * **Advanced E-Commerce Store (Customer Login/Auth, Product Filters/Search, Order Tracking, Payment Gateway & Full Inventory Admin)**: Roughly **₹12,999 – ₹15,999**
+     * **Dedicated Mobile App Add-on (Flutter Android/iOS connected to same database)**: Roughly **₹12,000 – ₹18,000+** (or combined Web + App suite: **₹22,000 – ₹28,000**)
+     * **Custom Enterprise Web Application / SaaS / Client Portal**: Roughly **₹18,000 – ₹35,000+**
+     * **Custom AI Agent / LLM Document Search / WhatsApp Automation**: Roughly **₹10,000 – ₹25,000+**
+     * **Academic & Student Projects (Diploma, BCA/MCA, B.Tech, M.Tech)**: Roughly **₹1,999 – ₹5,999**
+   - Intelligently explain what features drive the price up or down (e.g. custom database auth, payment gateway, mobile app wrapper vs native app).
 
 6. STEP-BY-STEP CONVERSATION FLOW:
    - **Step 1 (First contact / New inquiry)**:
@@ -1470,8 +1477,12 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `No. Hosting and domain are charged separately through our monthly cloud deployment plans (starting at ₹449/month) or can be bundled into your final project quotation. The ₹9,999–₹14,999 estimate covers the complete one-time custom website design and development! 🚀✨`;
   }
 
-  // 3. Payment Gateway / UPI Question
-  if (/payment gateway|upi|gpay|phonepe|online payments?.*included/i.test(text)) {
+  // 3. Payment Gateway / UPI Question (Asking if it is included or extra)
+  if (
+    !/how much|price|cost|quote|ballpark|fit within/i.test(text) &&
+    (/(?:is|are|does|do|what about).*(?:payment gateway|upi|gpay|phonepe|online payments?).*(?:included|extra|charges?|supported|available)/i.test(text) ||
+     /(?:payment gateway|upi|gpay).*(?:included|extra|additional)/i.test(text))
+  ) {
     return `Yes! Online payment gateway integration (Google Pay, PhonePe, Paytm, Cards & BHIM UPI) is **fully included** within the ₹9,999–₹14,999 website development package with zero extra integration charges! 💳✨`;
   }
 
@@ -1506,8 +1517,8 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `${greeting} For a ${bizType} looking to expand online, we recommend a **Full-Stack E-Commerce Web Store**! 🛍️✨\n\nIt allows your customers to browse product catalogs, select sizes/variants, and place orders directly via WhatsApp or online checkout, complete with an easy-to-use admin panel for you to manage products and track orders. 📦🚀${namePrompt}`;
   }
 
-  // 8. Pricing / Estimate Inquiry (Context-Aware based on Project Category)
-  if (/price|cost|quote|cotation|kiti|charges|rate|ballpark|how much/i.test(text)) {
+  // 8. Pricing / Estimate Inquiry (Dynamic & Requirement-Customized)
+  if (/price|cost|quote|cotation|kiti|charges|rate|ballpark|how much|fit within|increase the cost/i.test(text)) {
     const founderCTA = noFounder ? "" : `\n\nOur founder, **Shubham Vernekar (+91 90288 33275)**, can share the exact fixed proposal with you whenever you're ready! 📞🤝`;
 
     // A. Academic / College Projects
@@ -1516,16 +1527,34 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     }
 
     // B. Basic Landing Page / Business Portfolio Website
-    if (/landing page|starter website|single page|portfolio website|simple website|business profile/i.test(text) && !/e-?commerce|store|shop|cart/i.test(text)) {
-      return `Hey ${firstName}! 👋 For a clean, high-speed **Starter Business Website / Landing Page** (with custom responsive design, WhatsApp CTA, contact forms & SEO), development typically starts roughly around **₹3,999 to ₹7,999** ✨ depending on the exact sections and features!${founderCTA}`;
+    if (/landing page|starter website|single page|portfolio website|simple website|business profile/i.test(text) && !/e-?commerce|store|shop|cart|login|admin/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a clean, high-speed **Starter Business Website / Landing Page** (1–3 sections, WhatsApp CTA, contact forms & SEO), development typically starts roughly around **₹3,999 to ₹6,999** ✨ depending on the exact sections and animations!${founderCTA}`;
     }
 
-    // C. Mobile App Development (Android / iOS)
-    if (/android app|ios app|mobile app|flutter/i.test(text) && !/website.*only/i.test(text)) {
-      return `Hey ${firstName}! 👋 For a dedicated cross-platform **Mobile Application (Android / iOS)** with backend API, user authentication, and admin panel, development typically starts roughly around **₹12,999 to ₹25,000+** ✨ depending on features and complexity!${founderCTA}`;
+    // C. Multi-Page Corporate / Service Business Site (e.g. clinic, consulting, real estate, company)
+    if (/corporate|company website|service website|hospital|clinic|doctor|consulting|real estate/i.test(text) && !/shop|cart|e-?commerce/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a multi-page **Corporate Business & Services Website** (5–8 pages, service catalog, appointment/booking desk, team profiles & local SEO), development typically starts roughly around **₹6,999 to ₹9,999**! 🏢✨${founderCTA}`;
     }
 
-    // D. Full-Stack E-Commerce Web Store / Dynamic Web App (Default for Stores)
+    // D. Advanced E-Commerce with Login, Filters, Order Tracking, Custom Design (Scope Increase Inquiry)
+    if (
+      /login|auth|filter|search|tracking|custom design|inventory/i.test(text) &&
+      /fit within|increase|higher end|extra cost/i.test(text)
+    ) {
+      return `Hey ${firstName}! 👋 Yes, features like **customer login, product search & filters, order tracking, basic SEO, and a custom design** fit towards the higher end of our e-commerce range—roughly around **₹12,999 to ₹14,999** ✨ because of the secure user database, authentication system, and custom UI components!${founderCTA}`;
+    }
+
+    // E. Combined Web Store + Mobile App (Both Web & App)
+    if ((/android|ios|mobile app/i.test(text) && /website|store|web/i.test(text)) || /both/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a combined **Full-Stack Web Store + Dedicated Android Mobile App** connected to the same shared database and admin panel, development typically starts roughly around **₹22,000 to ₹28,000** ✨ (Website: ~₹11k–₹13k + Mobile App: ~₹11k–₹15k)!${founderCTA}`;
+    }
+
+    // F. Standalone Mobile App Development (Android / iOS)
+    if (/android app|ios app|mobile app|flutter/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a dedicated cross-platform **Mobile Application (Android / iOS)** with backend API, user authentication, and admin panel, development typically starts roughly around **₹12,999 to ₹22,000+** ✨ depending on features and complexity!${founderCTA}`;
+    }
+
+    // G. Standard E-Commerce Web Store (Default for Stores)
     return `Hey ${firstName}! 👋 For a custom **Full-Stack E-Commerce Store or Dynamic Web Application** (product catalog, shopping cart, WhatsApp checkout, payment gateway & admin dashboard), development typically starts roughly around **₹9,999 to ₹14,999** ✨ depending on the exact design and integrations needed.${founderCTA}`;
   }
 
