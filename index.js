@@ -163,7 +163,10 @@ function loadDynamicKnowledge() {
 //  MULTI-KEY ROTATING & ULTRA-LOW LATENCY MODEL ENGINE
 // ------------------------------------------------------------
 const GEMINI_MODELS = [
-  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash-8b",
   "gemini-2.5-flash",
 ];
 
@@ -1477,18 +1480,30 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `Here is the complete breakdown of our 4 official **ShubDeep Labs Cloud Deployment Plans**: ☁️✨\n\n1️⃣ **Essential Plan — ₹449 / month**\n• Domain, Hosting, Monthly Maintenance, Website Security (SSL + Firewall).\n\n2️⃣ **Advanced Plan — ₹559 / month**\n• Custom Domain, Hosting, Monthly Maintenance, More Security, and 1 Small Custom Change in project per month.\n\n3️⃣ **Professional Plan — ₹669 / month** ⭐ *(Recommended for E-Commerce)*\n• Custom Domain, Hosting, Special Maintenance, Special Security, and 2 Medium Changes in project per month.\n\n4️⃣ **Ultimate Plan — ₹779 / month**\n• Custom Domain with Email, Hosting, Ultimate Monthly Maintenance, Ultimate Security, and 2 Ultimate Changes in project per month.\n\nWhich plan sounds best for your project, ${firstName}? 😊🚀`;
   }
 
-  // 6. Pricing / Estimate general inquiry
+  // 6. Recommendation & Project Discovery (e.g. clothing store, jewellery store, what type of website)
+  if (
+    /recommend|what (?:type|kind) of (?:website|store|app)|which website|suggest|clothing|store|shop|online business/i.test(text) &&
+    !/price|cost|quote|budget|kiti/i.test(text)
+  ) {
+    const bizType = text.includes("clothing") ? "clothing business" : "business";
+    return `Wonderful to meet you, ${firstName}! 😊🙌 For a ${bizType} looking to expand beyond Instagram and WhatsApp, we recommend a **Full-Stack E-Commerce Web Store**! 🛍️✨\n\nIt allows your customers to browse product catalogs, select sizes/variants, and place orders directly via WhatsApp or online checkout, complete with an easy-to-use admin panel for you to manage products and track orders. 📦🚀\n\nWould you like to know the ballpark estimate for such a project? 😊`;
+  }
+
+  // 7. Pricing / Estimate general inquiry
   if (/price|cost|quote|kiti|charges|rate/i.test(text)) {
     const founderCTA = noFounder ? "" : `\n\nOur founder, **Shubham Vernekar (+91 90288 33275)**, can share the exact fixed quote with you whenever you're ready! 📞🤝`;
     return `Hey ${firstName}! 👋 For a custom high-speed web application or online store, development typically starts roughly around **₹9,999 to ₹14,999** ✨ depending on the exact design, features, and integrations needed.${founderCTA}`;
   }
 
-  // 7. Website / Portfolio link
-  if (/website|link|portfolio|demo/i.test(text)) {
+  // 8. Explicit Portfolio / Work Link Request (ONLY when explicitly requested)
+  if (
+    /(?:show|send|give|share|see).*(?:portfolio|demo|past work|live link|website link)|where can i see your work/i.test(text) &&
+    !/recommend|what type|suggest|build|make|develop/i.test(text)
+  ) {
     return `You can check out our official website and live portfolio here: 🌐✨\n👉 https://shubh-deep-labs.vercel.app\n\nFeel free to explore our featured client platforms and projects! 🚀`;
   }
 
-  // 8. Contact / Founder / Office
+  // 9. Contact / Founder / Office
   if (/contact|founder|owner|shubham|office|address|call|phone|email/i.test(text)) {
     return `You can connect directly with our founder & lead architect:\n\n👤 **Shubham Dinesh Vernekar**\n📱 **Phone / WhatsApp:** +91 90288 33275\n📧 **Email:** shubdeeplabs@gmail.com\n🏢 **Base:** Solapur, Maharashtra, India (PIN: 413001)\n\nHe is happy to assist you anytime! 🚀✨`;
   }
