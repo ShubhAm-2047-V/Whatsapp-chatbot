@@ -318,36 +318,39 @@ async function handleClientQuoteOverride(userMessage, history = [], sock = null)
       chatId: cid,
       name: c.name || "Client",
       phone: cid.split("@")[0],
-      project: c.messages?.filter((m) => m.role === "user").map((m) => m.text).join(" | ") || "",
+      project: c.projectRequirement || "Custom Web Application",
+      dealStatus: c.dealStatus || "INQUIRY",
+      recentChatTurns: (c.messages || []).slice(-8).map(m => `${m.role === "user" ? (c.name || "Client") : "AI Assistant"}: ${m.text}`).join("\n"),
     }));
 
   if (knownClients.length === 0) return null;
 
   const prompt = `You are an AI Executive Sales Assistant for Shubham Vernekar (Founder of ShubDeep Labs).
-Shubham is sending a command in his WhatsApp console to send something to a client or customize terms/rules/quotation.
+Shubham is sending a command in his WhatsApp console to send a message to a client or customize terms/rules/quotation/hosting plans.
 
 Recent Discussion Context with Owner:
 ${history.slice(-6).map((h) => `${h.role === "user" ? "Shubham" : "AI Assistant"}: ${h.text}`).join("\n")}
 
-Known Active Clients in CRM:
+Known Active Clients in CRM (with Recent Chat Turns):
 ${JSON.stringify(knownClients, null, 2)}
 
 Owner's Command: "${userMessage}"
 
-Determine if Shubham is instructing you to:
-1. CONFIRM PAYMENT & SEND AGREEMENT / RECEIPT PDF (e.g. "I have got the payment so generate the pdf and send her", "Payment received send pdf to Deepa", "Got advance send agreement")
-2. SEND A QUOTATION / REVISED PRICE (e.g. "quote Deepa 13000", "Send quotation of 13000 to her")
-3. SEND RULES, TERMS & CONDITIONS / ONBOARDING (e.g. "Then send the rules and conditions to her", "Give her the terms and conditions", "Send rules to Deepa")
-4. SEND CUSTOM MESSAGE / FOLLOW-UP TO CLIENT
+CRITICAL TOPIC & CONTEXT RULES:
+- Read each client's 'recentChatTurns' carefully to know EXACTLY what topic the client was discussing with the bot before the owner intervened (e.g., Hosting & Maintenance Plans discount, Project Development Quote, Payment Confirmation, Rules/Terms).
+- If the owner says "Send her that it is fixed price and cannot be changed" or "Send her this message saying price cannot be changed", address the EXACT topic currently active in her chat:
+  * If the client was negotiating the **Monthly Hosting & Maintenance Plan** (e.g., asking for the ₹669 Professional Plan for ₹449), formulate the message specifically explaining that the **Hosting & Maintenance Plan pricing is fixed** because it covers cloud server infrastructure, database backups, security, and maintenance updates.
+  * If the client was discussing initial project development pricing, address the project quotation.
+- Make the message warm, polite, and respectful with emojis, clearly speaking from founder Shubham Vernekar.
 
 Respond ONLY with valid JSON:
 {
   "isActionMatched": boolean,
   "shouldAutoDispatch": boolean,
-  "actionTitle": "Short title (e.g. Payment Confirmed & Project Agreement / Project Terms & Onboarding Guidelines / Revised Quotation)",
+  "actionTitle": "Short title (e.g. Hosting Plan Policy / Payment Confirmed / Project Terms / Revised Quotation)",
   "matchedChatId": "exact chatId string from known clients",
   "clientName": "Client Name",
-  "proposedMessage": "Warm, highly professional WhatsApp message for the client in their language confirming payment or explaining the terms/quotation."
+  "proposedMessage": "Warm, highly professional WhatsApp message for the client addressing the exact active topic."
 }`;
 
   try {
