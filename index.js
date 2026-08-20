@@ -1037,7 +1037,21 @@ async function classifyMessageIntent(userMessage, history = []) {
     }
   }
 
-  // 3. Standalone media or generic 1-word greeting without history
+  // 3. New Contact Greetings ("Hi", "Hello", "Namaste", "Namaskar", "Good morning", etc.)
+  const businessGreetings = [
+    "hi", "hii", "hiii", "hello", "hey", "heyy", "namaste", "namaskar",
+    "good morning", "good evening", "good afternoon", "gm", "ge", "hello sir", "hi sir"
+  ];
+  if (businessGreetings.includes(cleanText)) {
+    return {
+      isBusinessRelated: true,
+      isLead: false,
+      priority: "WARM",
+      reason: "Initial greeting from prospect/client",
+    };
+  }
+
+  // 4. Standalone media or generic casual friend chit-chat without history
   if (history.length === 0) {
     if (!cleanText) {
       return {
@@ -1048,16 +1062,15 @@ async function classifyMessageIntent(userMessage, history = []) {
       };
     }
 
-    const genericCasualGreetings = [
-      "hi", "hii", "hiii", "hello", "hey", "heyy", "namaste", "namaskar", 
-      "kasa ahes", "kasa kay", "kay challay", "kaha hai", "kya chal raha", "bhai", "bro"
+    const casualFriendChitChat = [
+      "kasa ahes", "kasa kay", "kay challay", "kaha hai", "kya chal raha", "bhai", "bro", "kaha ho", "kidhar ho", "party"
     ];
-    if (genericCasualGreetings.includes(cleanText)) {
+    if (casualFriendChitChat.includes(cleanText)) {
       return { 
         isBusinessRelated: false, 
         isLead: false, 
         priority: "COLD",
-        reason: "Generic 1-word greeting without business context" 
+        reason: "Casual friend chit-chat without business context" 
       };
     }
   }
@@ -2164,7 +2177,7 @@ async function startBot() {
 
         existing.timer = setTimeout(() => {
           processBatchedMessages(chatId, sock);
-        }, 1000); // 1000ms debounce capture for smooth grouping
+        }, 400); // 400ms instant responsive debounce capture
 
         messageQueue.set(chatId, existing);
       } catch (err) {
