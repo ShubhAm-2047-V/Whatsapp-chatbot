@@ -51,7 +51,8 @@ function isNoisyLog(arg) {
       arg.startsWith("Opening session") ||
       arg.startsWith("Session error") ||
       arg.startsWith("Failed to decrypt") ||
-      arg.startsWith("Session already")
+      arg.startsWith("Session already") ||
+      arg.startsWith("Removing old closed session")
     );
   }
   return false;
@@ -1746,7 +1747,15 @@ async function startBot() {
 
         const senderName = isSelfChat ? "Shubham (Owner)" : (msg.pushName || chatId.split("@")[0]);
 
-        if (IGNORE_GROUPS && chatId.endsWith("@g.us")) continue;
+        // Ignore WhatsApp Statuses, Stories, Channels, and Groups
+        if (
+          chatId === "status@broadcast" ||
+          chatId.endsWith("@broadcast") ||
+          chatId.endsWith("@newsletter") ||
+          (IGNORE_GROUPS && chatId.endsWith("@g.us"))
+        ) {
+          continue;
+        }
 
         // Extract multimodal media (Images / Audio voice notes)
         const mediaItems = [];
