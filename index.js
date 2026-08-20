@@ -1506,10 +1506,27 @@ function getLocalKnowledgeFallback(userMessage = "", history = [], senderName = 
     return `${greeting} For a ${bizType} looking to expand online, we recommend a **Full-Stack E-Commerce Web Store**! 🛍️✨\n\nIt allows your customers to browse product catalogs, select sizes/variants, and place orders directly via WhatsApp or online checkout, complete with an easy-to-use admin panel for you to manage products and track orders. 📦🚀${namePrompt}`;
   }
 
-  // 7. Pricing / Estimate general inquiry
-  if (/price|cost|quote|kiti|charges|rate/i.test(text)) {
-    const founderCTA = noFounder ? "" : `\n\nOur founder, **Shubham Vernekar (+91 90288 33275)**, can share the exact fixed quote with you whenever you're ready! 📞🤝`;
-    return `Hey ${firstName}! 👋 For a custom high-speed web application or online store, development typically starts roughly around **₹9,999 to ₹14,999** ✨ depending on the exact design, features, and integrations needed.${founderCTA}`;
+  // 8. Pricing / Estimate Inquiry (Context-Aware based on Project Category)
+  if (/price|cost|quote|cotation|kiti|charges|rate|ballpark|how much/i.test(text)) {
+    const founderCTA = noFounder ? "" : `\n\nOur founder, **Shubham Vernekar (+91 90288 33275)**, can share the exact fixed proposal with you whenever you're ready! 📞🤝`;
+
+    // A. Academic / College Projects
+    if (/academic|college|diploma|bca|mca|b\.?tech|engineering|mini project|final year|thesis/i.test(text)) {
+      return `Hey ${firstName}! 👋 For academic and college software projects (with complete working source code, PPT, documentation report, and setup assistance), projects typically start from **₹1,999 (Diploma)** to **₹3,999 (BCA/Engineering)** and **₹5,999 (AI/ML Specialized)**! 🎓✨${founderCTA}`;
+    }
+
+    // B. Basic Landing Page / Business Portfolio Website
+    if (/landing page|starter website|single page|portfolio website|simple website|business profile/i.test(text) && !/e-?commerce|store|shop|cart/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a clean, high-speed **Starter Business Website / Landing Page** (with custom responsive design, WhatsApp CTA, contact forms & SEO), development typically starts roughly around **₹3,999 to ₹7,999** ✨ depending on the exact sections and features!${founderCTA}`;
+    }
+
+    // C. Mobile App Development (Android / iOS)
+    if (/android app|ios app|mobile app|flutter/i.test(text) && !/website.*only/i.test(text)) {
+      return `Hey ${firstName}! 👋 For a dedicated cross-platform **Mobile Application (Android / iOS)** with backend API, user authentication, and admin panel, development typically starts roughly around **₹12,999 to ₹25,000+** ✨ depending on features and complexity!${founderCTA}`;
+    }
+
+    // D. Full-Stack E-Commerce Web Store / Dynamic Web App (Default for Stores)
+    return `Hey ${firstName}! 👋 For a custom **Full-Stack E-Commerce Store or Dynamic Web Application** (product catalog, shopping cart, WhatsApp checkout, payment gateway & admin dashboard), development typically starts roughly around **₹9,999 to ₹14,999** ✨ depending on the exact design and integrations needed.${founderCTA}`;
   }
 
   // 8. Explicit Portfolio / Work Link Request (ONLY when explicitly requested)
