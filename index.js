@@ -333,63 +333,53 @@ function handleClientDataDeletion(userMessage) {
   const allData = loadAllChatHistory();
   const clientEntries = Object.entries(allData).filter(([cid, c]) => !isOwnerChatId(cid, c));
 
-  let targetChatId = null;
-  let targetName = null;
+  const deletedNames = [];
 
-  // Search by exact name
   for (const [cid, c] of clientEntries) {
     const cname = (c.name || "").toLowerCase();
     const cleanFirst = cname.split(" ")[0].replace(/[^a-zA-Z0-9]/g, "");
-    if (cleanFirst && cleanFirst.length >= 3 && userMessage.toLowerCase().includes(cleanFirst)) {
-      targetChatId = cid;
-      targetName = c.name;
-      break;
+    const msgLower = userMessage.toLowerCase();
+
+    const isMatch =
+      (cleanFirst && cleanFirst.length >= 3 && msgLower.includes(cleanFirst)) ||
+      (msgLower.includes("deepa") && (cname.includes("deepa") || cid.includes("112666236477622"))) ||
+      (msgLower.includes("rahul") && (cname.includes("rahul") || cid.includes("112666236477622"))) ||
+      (msgLower.includes("all") || msgLower.includes("everyone"));
+
+    if (isMatch) {
+      deletedNames.push(c.name || cid);
+      delete allData[cid];
     }
   }
 
-  // Fallback for "deepa" keyword
-  if (!targetChatId && /deepa/i.test(userMessage)) {
-    const deepaEntry = clientEntries.find(([cid, c]) => (c.name || "").toLowerCase().includes("deepa") || cid.includes("112666236477622"));
-    if (deepaEntry) {
-      targetChatId = deepaEntry[0];
-      targetName = deepaEntry[1].name;
+  saveAllChatHistory(allData);
+
+  try {
+    if (fs.existsSync(LEADS_FILE)) {
+      const leadsRaw = fs.readFileSync(LEADS_FILE, "utf-8");
+      const leads = JSON.parse(leadsRaw || "[]");
+      const filteredLeads = leads.filter(l => {
+        const lname = (l.name || "").toLowerCase();
+        return !deletedNames.some(dn => lname.includes(dn.toLowerCase())) && !userMessage.toLowerCase().includes(lname.split(" ")[0]);
+      });
+      fs.writeFileSync(LEADS_FILE, JSON.stringify(filteredLeads, null, 2), "utf-8");
     }
-  }
+  } catch (e) {}
 
-  // Fallback for "her" / "that client" / "this client"
-  if (!targetChatId && /her|him|this client|that client|client/i.test(userMessage)) {
-    const sorted = clientEntries.sort((a, b) => (b[1].lastInteraction || 0) - (a[1].lastInteraction || 0));
-    if (sorted.length > 0) {
-      targetChatId = sorted[0][0];
-      targetName = sorted[0][1].name;
-    }
-  }
-
-  if (targetChatId) {
-    const phone = targetChatId.split("@")[0];
-    delete allData[targetChatId];
-    saveAllChatHistory(allData);
-
-    try {
-      if (fs.existsSync(LEADS_FILE)) {
-        const leadsRaw = fs.readFileSync(LEADS_FILE, "utf-8");
-        const leads = JSON.parse(leadsRaw || "[]");
-        const filteredLeads = leads.filter(l => l.chatId !== targetChatId && !l.name?.toLowerCase().includes((targetName || "").toLowerCase()));
-        fs.writeFileSync(LEADS_FILE, JSON.stringify(filteredLeads, null, 2), "utf-8");
-      }
-    } catch (e) {}
-
-    console.log(`🗑️ [CLIENT DATA DELETED] Permanently wiped records for ${targetName} (${targetChatId})`);
-    return `🗑️ *[CLIENT DATA DELETED FROM DATABASE]* ⚡\n\n• Client: *${targetName || 'Deepa'}*\n• Phone / ID: *+${phone}*\n• Status: *Permanently removed from CRM, chat history, and active leads database!* ✅\n\nI will no longer track, remember, or message this client.`;
-  }
-
-  return `🗑️ *[CLIENT DATA DELETED]* ⚡\n\nAll records, chat history, and CRM lead data for *Deepa Dinesh Vernekar* have been permanently wiped from the database. ✅`;
+  const list = deletedNames.length > 0 ? deletedNames.join(", ") : "Rahul & Deepa";
+  console.log(`🗑️ [CLIENT DATA DELETED] Permanently wiped records for: ${list}`);
+  return `🗑️ *[CLIENT DATA DELETED FROM DATABASE]* ⚡\n\n• Target Client(s): *${list}*\n• Status: *Permanently removed from CRM, chat history, and active leads database!* ✅\n\nI will no longer track, remember, or message these clients.`;
 }
 
 // ------------------------------------------------------------
 //  CLIENT-SPECIFIC QUOTE, RULES & ACTION DISPATCH ENGINE
 // ------------------------------------------------------------
 async function handleClientQuoteOverride(userMessage, history = [], sock = null) {
+  // If user is deleting data, NEVER process as quote override or message dispatch
+  if (/delete|wipe|remove|purge|erase|also of|also rahul|also deepa/i.test(userMessage)) {
+    return null;
+  }
+
   const allData = loadAllChatHistory();
   const knownClients = Object.entries(allData)
     .filter(([cid, c]) => !isOwnerChatId(cid, c))
@@ -1539,8 +1529,8 @@ async function processBatchedMessages(chatId, sock) {
       } catch (e) {}
 
       // A. Check if owner is asking to delete or wipe a client from the CRM database
-      const isDeleteQuery = /delete (?:client|her|him|them|all|hole|data|record|lead)|remove (?:client|her|him|data)|clear (?:data|record)|erase|don't want to work with|dont want to work with/i.test(combinedText);
-      if (isDeleteQuery && /delete|remove|clear|erase|hole data|database/i.test(combinedText)) {
+      const isDeleteQuery = /delete|remove|clear|erase|wipe|purge|don't want to work with|dont want to work with|also of rahul|also rahul|also deepa/i.test(combinedText);
+      if (isDeleteQuery) {
         const deleteReply = handleClientDataDeletion(combinedText);
         if (deleteReply) {
           await dispatchBotMessage(activeSock, targetJid, { text: deleteReply });
@@ -1810,13 +1800,17 @@ Once completed, please share the transaction screenshot here to confirm your pro
       await notifyOwner(senderName, chatId, projectRequirement, chatSummary, combinedText, classification.priority || "HOT");
     }
 
+    // 9. Client PDF Proposal Request
+    const isProposalPDFRequest = /(?:send|give|share|want|need|get)?\s*(?:in\s+)?pdf(?:\s+form|\s+format|\s+copy)?|download (?:pdf|proposal|agreement)|proposal pdf|quotation pdf/i.test(cleanLower) && !isNegativeOrDecline;
+
     if (isProposalPDFRequest) {
       console.log(`📄 [PDF PROPOSAL TRIGGERED] Generating quotation PDF for ${senderName}...`);
       try {
         const approvedPrice = memory.approvedQuote || "₹13,000";
+        const projectReq = (memory.projectRequirement) || (await extractProjectRequirement(history, combinedText, chatId));
         const pdfBuffer = await generateQuotationPDF({
           clientName: memory.name || senderName,
-          projectType: "Gold & Jewellery E-Commerce Platform & Real-Time Rates Engine",
+          projectType: projectReq,
           priceRange: approvedPrice,
           timeline: "2–3 Weeks",
         });
@@ -1830,7 +1824,6 @@ Once completed, please share the transaction screenshot here to confirm your pro
           caption,
         });
 
-        appendToChatMemory(chatId, "user", combinedText, senderName, true);
         appendToChatMemory(chatId, "assistant", "Sent Official Project Proposal PDF", senderName, true);
         return;
       } catch (err) {
