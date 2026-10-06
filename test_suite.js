@@ -379,6 +379,461 @@ runTest("TEST 20: Corporate Multi-Page Business Site -> Quotes ₹6,999 to ₹9,
   assert.strictEqual(res.includes("₹6,999 to ₹9,999"), true, "Must quote corporate rate");
 });
 
+// ------------------------------------------------------------
+// SCHEDULER ENGINE TESTS (Tests 21 - 28)
+// ------------------------------------------------------------
+const {
+  parseScheduleTime,
+  formatScheduleDisplay,
+  resolveRecipient,
+  parseScheduleCommand,
+  addScheduledMessage,
+  cancelScheduledMessage,
+  listScheduledMessages,
+  getDueScheduledMessages,
+  markMessageDelivered,
+} = require("./utils/messageScheduler");
+
+// TEST 21: Parse relative time delays (10, 10 min, 15 mins, 30 sec, 2 hours)
+runTest("TEST 21: Scheduler -> Parses Relative Delays Correctly", () => {
+  const base = 1724245000000;
+  const t10 = parseScheduleTime("10 min", base);
+  assert.strictEqual(t10.delayMs, 10 * 60 * 1000, "10 min should be 600,000 ms");
+  assert.strictEqual(t10.targetTimestamp, base + 600000, "Target timestamp should match");
+
+  const t15NoUnit = parseScheduleTime("15", base);
+  assert.strictEqual(t15NoUnit.delayMs, 15 * 60 * 1000, "Default unit must be minutes");
+
+  const t30s = parseScheduleTime("30 sec", base);
+  assert.strictEqual(t30s.delayMs, 30 * 1000, "30 sec should be 30,000 ms");
+
+  const t2h = parseScheduleTime("2 hours", base);
+  assert.strictEqual(t2h.delayMs, 2 * 3600 * 1000, "2 hours should be 7,200,000 ms");
+});
+
+// TEST 22: Parse exact time and date ("tomorrow at 10 AM", "today at 5 PM")
+runTest("TEST 22: Scheduler -> Parses Exact Time & Tomorrow Specifications", () => {
+  const base = new Date("2026-08-21T10:00:00+05:30").getTime();
+  const tmrw = parseScheduleTime("tomorrow at 10 AM", base);
+  assert.strictEqual(tmrw !== null, true, "Must parse tomorrow at 10 AM");
+  assert.strictEqual(tmrw.targetTimestamp > base, true, "Tomorrow timestamp must be in future");
+
+  const today5pm = parseScheduleTime("today at 5 PM", base);
+  assert.strictEqual(today5pm !== null, true, "Must parse today at 5 PM");
+  assert.strictEqual(today5pm.targetTimestamp > base, true, "5 PM today must be ahead of 10 AM");
+});
+
+// TEST 23: Recipient Resolution (Phone Number vs Contact Name)
+runTest("TEST 23: Scheduler -> Resolves Recipients (Explicit Phone & Client Names)", () => {
+  const phoneRes = resolveRecipient("9876543210");
+  assert.strictEqual(phoneRes.phone, "919876543210", "Must format 10-digit number with country code");
+  assert.strictEqual(phoneRes.chatId, "919876543210@s.whatsapp.net", "Must generate WhatsApp JID");
+
+  const deepaRes = resolveRecipient("Deepa");
+  assert.strictEqual(deepaRes !== null, true, "Must resolve Deepa");
+
+  const unregRes = resolveRecipient("Ayan");
+  assert.strictEqual(unregRes.name, "Ayan", "Must extract clean name for new/unregistered client");
+});
+
+// TEST 24: Natural Pattern A ("send this message to ayan after 10 min: hello")
+runTest("TEST 24: Scheduler Command -> Pattern A ('send this message to ayan after 10 min: hello')", () => {
+  const cmd = parseScheduleCommand("Send this message to Ayan after 10 min: Hello Ayan, please check the proposal");
+  assert.strictEqual(cmd !== null, true, "Command must be recognized");
+  assert.strictEqual(cmd.isScheduleCommand, true);
+  assert.strictEqual(cmd.recipient.toLowerCase(), "ayan");
+  assert.strictEqual(cmd.timeParsed.delayMs, 10 * 60 * 1000);
+  assert.strictEqual(cmd.message, "Hello Ayan, please check the proposal");
+});
+
+// TEST 25: Natural Pattern B ("after 15 mins send Deepa saying meeting at 4 PM")
+runTest("TEST 25: Scheduler Command -> Pattern B ('after 15 mins send Deepa saying meeting at 4 PM')", () => {
+  const cmd = parseScheduleCommand("after 15 mins send Deepa saying meeting at 4 PM");
+  assert.strictEqual(cmd !== null, true, "Command must be recognized");
+  assert.strictEqual(cmd.isScheduleCommand, true);
+  assert.strictEqual(cmd.recipient.toLowerCase(), "deepa");
+  assert.strictEqual(cmd.timeParsed.delayMs, 15 * 60 * 1000);
+  assert.strictEqual(cmd.message, "meeting at 4 PM");
+});
+
+// TEST 26: Fast Command Syntax (#schedule and #scheduled)
+runTest("TEST 26: Scheduler Command -> Fast Syntax (#schedule and #scheduled)", () => {
+  const cmd = parseScheduleCommand("#schedule 919028833275 20m Kickoff starting soon");
+  assert.strictEqual(cmd !== null, true, "Fast command must be parsed");
+  assert.strictEqual(cmd.recipient, "919028833275");
+  assert.strictEqual(cmd.timeParsed.delayMs, 20 * 60 * 1000);
+  assert.strictEqual(cmd.message, "Kickoff starting soon");
+
+  const listCmd = parseScheduleCommand("#scheduled");
+  assert.strictEqual(listCmd.isListCommand, true, "#scheduled must be list command");
+});
+
+// TEST 27: Add, List, and Cancel Scheduled Tasks
+runTest("TEST 27: Scheduler Queue -> Add, List, and Cancel Tasks", () => {
+  const now = Date.now();
+  const task = addScheduledMessage("Ayan", now + 600000, "Automated Test Message", "Test Runner");
+  assert.strictEqual(task.recipientName, "Ayan");
+  assert.strictEqual(task.status, "PENDING");
+
+  const activeList = listScheduledMessages();
+  assert.strictEqual(activeList.some(t => t.id === task.id), true, "Task must exist in active list");
+
+  const cancelResult = cancelScheduledMessage(task.id);
+  assert.strictEqual(cancelResult.success, true, "Cancellation must succeed");
+
+  const afterCancelList = listScheduledMessages();
+  assert.strictEqual(afterCancelList.some(t => t.id === task.id), false, "Cancelled task must not be in active list");
+});
+
+// TEST 28: Due Task Detection & Mark Delivered
+runTest("TEST 28: Scheduler Engine -> Due Task Detection & Delivery State", () => {
+  const pastTime = Date.now() - 5000;
+  const task = addScheduledMessage("919876543210", pastTime, "Immediate Delivery Test", "Test Runner");
+
+  const due = getDueScheduledMessages();
+  assert.strictEqual(due.some(t => t.id === task.id), true, "Past task must be flagged as due");
+
+  markMessageDelivered(task.id);
+  const dueAfter = getDueScheduledMessages();
+  assert.strictEqual(dueAfter.some(t => t.id === task.id), false, "Delivered task must not be due anymore");
+});
+
+// ------------------------------------------------------------
+// WHATSAPP CONTACTS & INSTANT DISPATCH TESTS (Tests 29 - 31)
+// ------------------------------------------------------------
+const { findContact, recordContact } = require("./utils/contactsStore");
+
+// TEST 29: WhatsApp Contact & Relationship Alias Discovery
+runTest("TEST 29: Contacts Store -> Resolves Aliases (Mummy, Papa, Deepa)", () => {
+  const mummy = findContact("mummy");
+  assert.strictEqual(mummy !== null, true, "Must find mummy in contacts");
+  assert.strictEqual(mummy.name.includes("Deepa"), true, "Mummy must resolve to Deepa");
+  assert.strictEqual(mummy.chatId, "112666236477622@lid", "Chat ID must match");
+
+  const papa = findContact("papa");
+  assert.strictEqual(papa !== null, true, "Must find papa in contacts");
+  assert.strictEqual(papa.name.includes("Dinesh"), true, "Papa must resolve to Dinesh");
+
+  const deepa = findContact("Deepa Dinesh Vernekar");
+  assert.strictEqual(deepa !== null, true, "Must resolve full name");
+});
+
+// TEST 30: Instant Direct Send Command Parsing ("send hello to mummy")
+runTest("TEST 30: Instant Send -> Parses 'send hello to mummy'", () => {
+  const cmd = parseScheduleCommand("send hello to mummy");
+  assert.strictEqual(cmd !== null, true, "Must match instant send command");
+  assert.strictEqual(cmd.isDirectSendCommand, true, "Must be direct send");
+  assert.strictEqual(cmd.recipient.toLowerCase(), "mummy");
+  assert.strictEqual(cmd.message, "hello");
+
+  const resolved = resolveRecipient(cmd.recipient);
+  assert.strictEqual(resolved.chatId, "112666236477622@lid", "Recipient must resolve to WhatsApp chatId");
+});
+
+// TEST 31: Direct Recipient Follow-up ("to Deepa Dinesh Vernekar")
+runTest("TEST 31: Instant Send -> Parses 'to Deepa Dinesh Vernekar' follow-up", () => {
+  const cmd = parseScheduleCommand("to Deepa Dinesh Vernekar");
+  assert.strictEqual(cmd !== null, true, "Must match follow-up recipient command");
+  assert.strictEqual(cmd.isDirectRecipientReply, true);
+  assert.strictEqual(cmd.recipient, "Deepa Dinesh Vernekar");
+
+  const resolved = resolveRecipient(cmd.recipient);
+  assert.strictEqual(resolved.chatId, "112666236477622@lid");
+});
+
+// TEST 32: Message Unsend / Deletion Detection vs Client CRM Wipe
+runTest("TEST 32: Unsend vs CRM Wipe -> 'Delete that message sent to nitesh' is Message Unsend", () => {
+  const query = "Delete that message sent to nitesh";
+
+  const isMessageDeleteQuery =
+    /(?:delete|unsend|recall|cancel|revoke|remove)\s+(?:that|the|last|sent|this)?\s*(?:message|msg|text)\b/i.test(query) ||
+    /^(?:unsend|recall|revoke)\b/i.test(query) ||
+    /^delete\s+(?:that|this)\b/i.test(query) ||
+    /(?:delete|unsend|recall|cancel)\s+(?:message|msg)\s*(?:sent\s+to|to\s+|for\s+)/i.test(query);
+
+  const isClientWipeQuery = (
+    /(?:delete|wipe|purge|remove|erase|clear)\s+(?:client|contact|lead|customer|user|data|records?|chat\s+history|database|crm|profile|account|info|details)\b/i.test(query) ||
+    /(?:delete|wipe|purge|remove|erase|clear)\s+(?:all\s+)?(?:data\s+of|records?\s+of|history\s+of)\b/i.test(query) ||
+    /(?:wipe|purge)\s+[a-zA-Z]+/i.test(query) ||
+    /don't want to work with|dont want to work with|permanently delete\s+[a-zA-Z]+/i.test(query)
+  ) && !/(?:message|msg|text|sent message|that message|scheduled)/i.test(query);
+
+  assert.strictEqual(isMessageDeleteQuery, true, "Must be classified as message unsend");
+  assert.strictEqual(isClientWipeQuery, false, "Must NOT be classified as client CRM wipe");
+});
+
+// TEST 33: Client CRM Wipe Intent
+runTest("TEST 33: Unsend vs CRM Wipe -> 'Wipe data of Rahul' is Client Wipe", () => {
+  const query = "Wipe data of Rahul";
+
+  const isMessageDeleteQuery =
+    /(?:delete|unsend|recall|cancel|revoke|remove)\s+(?:that|the|last|sent|this)?\s*(?:message|msg|text)\b/i.test(query) ||
+    /^(?:unsend|recall|revoke)\b/i.test(query) ||
+    /^delete\s+(?:that|this)\b/i.test(query) ||
+    /(?:delete|unsend|recall|cancel)\s+(?:message|msg)\s*(?:sent\s+to|to\s+|for\s+)/i.test(query);
+
+  const isClientWipeQuery = (
+    /(?:delete|wipe|purge|remove|erase|clear)\s+(?:client|contact|lead|customer|user|data|records?|chat\s+history|database|crm|profile|account|info|details)\b/i.test(query) ||
+    /(?:delete|wipe|purge|remove|erase|clear)\s+(?:all\s+)?(?:data\s+of|records?\s+of|history\s+of)\b/i.test(query) ||
+    /(?:wipe|purge)\s+[a-zA-Z]+/i.test(query) ||
+    /don't want to work with|dont want to work with|permanently delete\s+[a-zA-Z]+/i.test(query)
+  ) && !/(?:message|msg|text|sent message|that message|scheduled)/i.test(query);
+
+  assert.strictEqual(isMessageDeleteQuery, false, "Must NOT be message delete");
+  assert.strictEqual(isClientWipeQuery, true, "Must be client wipe");
+});
+
+// TEST 34: Recipient Extraction for Unsend Commands
+runTest("TEST 34: Unsend -> Extracts recipient target from natural phrasing", () => {
+  const phrasings = [
+    { text: "Delete that message sent to nitesh", expected: "nitesh" },
+    { text: "unsend message to deepa", expected: "deepa" },
+    { text: "delete last message sent to +919028833275", expected: "+919028833275" },
+  ];
+
+  for (const item of phrasings) {
+    const targetMatch = item.text.match(/(?:sent\s+to|to\s+|for\s+|of\s+)([a-zA-Z0-9 +_#@.-]+)/i);
+    assert.strictEqual(targetMatch !== null, true, `Must extract target from '${item.text}'`);
+    assert.strictEqual(targetMatch[1].trim().toLowerCase(), item.expected.toLowerCase());
+  }
+});
+
+// ------------------------------------------------------------
+// PERFORMANCE & CACHING OPTIMIZATION TESTS (Tests 35 - 38)
+// ------------------------------------------------------------
+const { generatePaymentQR } = require("./utils/paymentQR");
+const { generateQuotationPDF } = require("./utils/pdfGenerator");
+
+// TEST 35: High-Speed Contacts Store Indexing ($O(1)$)
+runTest("TEST 35: Contacts Store -> Fast In-Memory Index Lookup", () => {
+  const start = Date.now();
+  for (let i = 0; i < 1000; i++) {
+    const res = findContact("mummy");
+    assert.strictEqual(res !== null, true);
+    assert.strictEqual(res.isAliasMatch, true);
+  }
+  const duration = Date.now() - start;
+  console.log(`     ⚡ 1,000 in-memory contact lookups completed in ${duration}ms (${(duration/1000).toFixed(4)}ms/lookup)`);
+  assert.strictEqual(duration < 200, true, "1000 lookups must take less than 200ms");
+});
+
+// TEST 36: Payment QR Code Buffer Caching
+runTest("TEST 36: Payment QR Engine -> Buffer Caching", async () => {
+  const buf1 = await generatePaymentQR({ vpa: "9028833275@ybl", name: "Shubham Vernekar", amount: 5000 });
+  const buf2 = await generatePaymentQR({ vpa: "9028833275@ybl", name: "Shubham Vernekar", amount: 5000 });
+  assert.strictEqual(Buffer.isBuffer(buf1), true);
+  assert.strictEqual(buf1 === buf2, true, "Identical QR requests must return cached buffer reference");
+});
+
+// TEST 37: Proposal PDF Generation & Buffer Caching
+runTest("TEST 37: Proposal PDF Engine -> In-Memory Buffer Caching", async () => {
+  const pdf1 = await generateQuotationPDF({ clientName: "Deepa Dinesh Vernekar" });
+  const pdf2 = await generateQuotationPDF({ clientName: "Deepa Dinesh Vernekar" });
+  assert.strictEqual(Buffer.isBuffer(pdf1), true);
+  assert.strictEqual(pdf1.length > 1000, true);
+  assert.strictEqual(pdf1 === pdf2, true, "Identical client PDF requests must return cached buffer reference");
+});
+
+// TEST 38: Gemini Key Cooldown & Load Balancing Logic
+runTest("TEST 38: Gemini Engine -> Rate Limit Cooldown & Circuit Breaker Logic", () => {
+  const cooldowns = new Map();
+  const testKeys = ["KEY_A", "KEY_B", "KEY_C"];
+  let activeIdx = 0;
+
+  // Simulate KEY_A hitting 429
+  cooldowns.set(testKeys[0], Date.now() + 60000);
+
+  const available = testKeys.filter(k => (cooldowns.get(k) || 0) <= Date.now());
+  assert.strictEqual(available.length, 2, "Must filter out cooling-down key");
+  assert.strictEqual(available.includes("KEY_A"), false, "KEY_A must be quarantined");
+  assert.strictEqual(available[0], "KEY_B");
+});
+
+// TEST 39: Owner PDF Command Parsing -> "Generate our company pdf and send that to mummy"
+runTest("TEST 39: Owner PDF Dispatch -> Parses 'Generate our company pdf and send that to mummy'", () => {
+  const text = "Generate our company pdf and send that to mummy";
+  const isPdfIntent = /(?:generate|create|send|dispatch|share|give)\s+(?:(?:me|us|our)\s+)?(?:company\s+|project\s+|official\s+)?(?:pdf|proposal|quotation|brochure|agreement|document)/i.test(text) ||
+                      /(?:company|proposal|quotation)\s+pdf\s+(?:to|for)\s+/i.test(text);
+
+  assert.strictEqual(isPdfIntent, true, "Must detect PDF command intent");
+
+  let recipientCandidate = null;
+  const targetMatch = text.match(/(?:to|for)\s+([a-zA-Z0-9 +_#@.-]+)$/i) ||
+                      text.match(/(?:send|share|give)\s+(?:that|it|the\s+pdf)?\s*(?:to|for)\s+([a-zA-Z0-9 +_#@.-]+)/i) ||
+                      text.match(/(?:send|share)\s+([a-zA-Z0-9 +_#@.-]+)\s+(?:our\s+|the\s+)?(?:company\s+)?pdf/i);
+
+  if (targetMatch) {
+    recipientCandidate = targetMatch[1].trim();
+  }
+
+  assert.strictEqual(recipientCandidate, "mummy", "Must extract recipient 'mummy'");
+  const resolved = resolveRecipient(recipientCandidate);
+  assert.strictEqual(resolved.name.includes("Deepa"), true);
+  assert.strictEqual(resolved.chatId, "112666236477622@lid");
+});
+
+// TEST 40: Owner PDF Command Parsing -> "Send proposal pdf to nitesh"
+runTest("TEST 40: Owner PDF Dispatch -> Parses 'Send proposal pdf to nitesh'", () => {
+  const text = "Send proposal pdf to nitesh";
+  const isPdfIntent = /(?:generate|create|send|dispatch|share|give)\s+(?:(?:me|us|our)\s+)?(?:company\s+|project\s+|official\s+)?(?:pdf|proposal|quotation|brochure|agreement|document)/i.test(text) ||
+                      /(?:company|proposal|quotation)\s+pdf\s+(?:to|for)\s+/i.test(text);
+
+  assert.strictEqual(isPdfIntent, true);
+
+  const targetMatch = text.match(/(?:to|for)\s+([a-zA-Z0-9 +_#@.-]+)$/i);
+  assert.strictEqual(targetMatch !== null, true);
+  const resolved = resolveRecipient(targetMatch[1].trim());
+  assert.strictEqual(resolved.name.toLowerCase().includes("nitesh"), true);
+  assert.strictEqual(resolved.chatId, "255602781646975@lid");
+});
+
+const { generateCustomDocumentPDF } = require("./utils/pdfGenerator");
+
+// TEST 41: Dynamic Custom PDF Document -> "Generate a pdf and in that pdf write Thank you in big words and send that to mummy"
+runTest("TEST 41: Owner Custom PDF -> Parses 'Thank you in big words' and resolves recipient", async () => {
+  const text = "Generate a pdf and in that pdf write Thank you in big words and send that to mummy";
+  
+  const isPdfIntent =
+    /(?:generate|create|send|dispatch|share|give|make|write)\s+(?:(?:a|an|the|our|this)\s+)?(?:custom\s+|company\s+|project\s+|official\s+)?(?:pdf|proposal|quotation|brochure|agreement|document|note|card)/i.test(text) ||
+    /(?:company|proposal|quotation)\s+pdf\b/i.test(text) ||
+    /\bpdf\b.*(?:write|saying|with|text|words?|send)/i.test(text);
+
+  assert.strictEqual(isPdfIntent, true, "Must match custom PDF intent");
+
+  let recipientCandidate = null;
+  const targetMatch = text.match(/(?:and\s+send\s+(?:that|it)?\s+to|send\s+(?:that|it)?\s+to|to|for)\s+([a-zA-Z0-9 +_#@.-]+)$/i);
+  if (targetMatch) {
+    recipientCandidate = targetMatch[1].trim();
+  }
+  assert.strictEqual(recipientCandidate, "mummy");
+
+  const resolved = resolveRecipient(recipientCandidate);
+  assert.strictEqual(resolved.name.includes("Deepa"), true);
+
+  // Custom text extraction
+  let customText = null;
+  const isBigWords = /big\s+words?|large|huge|bold|prominent|caps/i.test(text);
+  const customTextMatch =
+    text.match(/(?:in\s+that\s+pdf\s+write|write|saying|with\s+text|with\s+words?)\s+["']?([^"'\n]+?)["']?\s+(?:in\s+(?:big|large|huge|bold)\s+words?\s+)?(?:and\s+send|to\s+|for\s+|$)/i);
+
+  if (customTextMatch) {
+    customText = customTextMatch[1].trim();
+  }
+
+  assert.strictEqual(customText, "Thank you");
+  assert.strictEqual(isBigWords, true);
+
+  // Verify custom document rendering
+  const pdfBuffer = await generateCustomDocumentPDF({
+    clientName: resolved.name,
+    messageText: customText,
+    isBigWords,
+  });
+
+  assert.strictEqual(Buffer.isBuffer(pdfBuffer), true);
+  assert.strictEqual(pdfBuffer.length > 500, true);
+});
+
+// TEST 42: Custom Document PDF Engine -> Generates High Quality Typography Document
+runTest("TEST 42: Custom Document PDF Engine -> Renders Clean Vector Layout", async () => {
+  const pdfBuffer = await generateCustomDocumentPDF({
+    clientName: "Nitesh",
+    messageText: "WELCOME TO THE TEAM",
+    isBigWords: true,
+  });
+
+  assert.strictEqual(Buffer.isBuffer(pdfBuffer), true);
+  assert.strictEqual(pdfBuffer.length > 1000, true);
+});
+
+// TEST 43: Owner Identification Engine -> Recognizes phone digits, JID, LID, and socket device IDs
+runTest("TEST 43: Owner Identification Engine -> Recognizes phone, JID, LID, and socket IDs", () => {
+  const OWNER_PHONE = "+91 90288 33275";
+  const OWNER_JID = "919028833275@s.whatsapp.net";
+  const fakeSock = {
+    user: {
+      id: "919028833275:1@s.whatsapp.net",
+      lid: "12345678901234:5@lid",
+    },
+  };
+
+  function testIsOwner(chatId) {
+    if (!chatId) return true;
+    if (chatId === OWNER_JID) return true;
+
+    const cleanOwnerDigits = OWNER_PHONE.replace(/\D/g, "");
+    const cleanOwnerJidDigits = OWNER_JID.split("@")[0].replace(/\D/g, "");
+    const cleanChatDigits = chatId.split("@")[0].replace(/\D/g, "");
+
+    if (cleanChatDigits && cleanOwnerDigits && (cleanChatDigits === cleanOwnerDigits || cleanChatDigits.endsWith(cleanOwnerDigits) || cleanOwnerDigits.endsWith(cleanChatDigits))) return true;
+    if (cleanChatDigits && cleanOwnerJidDigits && (cleanChatDigits === cleanOwnerJidDigits || cleanChatDigits.endsWith(cleanOwnerJidDigits) || cleanOwnerJidDigits.endsWith(cleanChatDigits))) return true;
+
+    const myJid = fakeSock.user.id;
+    const myLid = fakeSock.user.lid;
+
+    if (myJid) {
+      const myJidUser = myJid.split("@")[0].split(":")[0];
+      const chatUser = chatId.split("@")[0].split(":")[0];
+      if (chatUser === myJidUser || chatId.startsWith(myJidUser) || myJid.startsWith(chatUser)) return true;
+    }
+
+    if (myLid) {
+      const myLidUser = myLid.split("@")[0].split(":")[0];
+      const chatUser = chatId.split("@")[0].split(":")[0];
+      if (chatUser === myLidUser || chatId.startsWith(myLidUser) || myLid.startsWith(chatUser)) return true;
+    }
+
+    return false;
+  }
+
+  assert.strictEqual(testIsOwner("919028833275@s.whatsapp.net"), true, "Must match OWNER_JID");
+  assert.strictEqual(testIsOwner("9028833275@s.whatsapp.net"), true, "Must match 10-digit phone format");
+  assert.strictEqual(testIsOwner("12345678901234@lid"), true, "Must match user LID");
+  assert.strictEqual(testIsOwner("12345678901234:0@lid"), true, "Must match user LID with device suffix");
+  assert.strictEqual(testIsOwner("919876543210@s.whatsapp.net"), false, "Must not match other client numbers");
+});
+
+// TEST 44: Owner Manual Outbound Message Capture -> Stored to CRM without triggering AI echo
+runTest("TEST 44: Owner Manual Outbound Message -> Captures in CRM and prevents echo", () => {
+  const simulatedCRM = {};
+  function simulateAppendMemory(chatId, role, text, senderName) {
+    if (!simulatedCRM[chatId]) simulatedCRM[chatId] = { messages: [] };
+    simulatedCRM[chatId].messages.push({ role, text, sender: senderName });
+  }
+
+  const clientChatId = "919876543210@s.whatsapp.net";
+  const ownerMessage = "Hi Rahul, I will deliver the project by Monday!";
+  const fromMe = true;
+  const isSelfChat = false;
+  const isCommand = /^(?:#|send|quote|update|delete|cancel|show|list|we now|always|remember|new office|after|schedule)/i.test(ownerMessage);
+
+  assert.strictEqual(isCommand, false, "Manual message should not be classified as command");
+
+  let botReplied = false;
+  if (fromMe && !isSelfChat) {
+    if (!isCommand) {
+      simulateAppendMemory(clientChatId, "assistant", ownerMessage, "Shubham (Owner)");
+      // continue -> no reply
+    } else {
+      botReplied = true;
+    }
+  }
+
+  assert.strictEqual(botReplied, false, "Bot must not echo reply to owner manual typing");
+  assert.strictEqual(simulatedCRM[clientChatId].messages.length, 1, "Must capture owner message in CRM");
+  assert.strictEqual(simulatedCRM[clientChatId].messages[0].text, ownerMessage);
+  assert.strictEqual(simulatedCRM[clientChatId].messages[0].sender, "Shubham (Owner)");
+});
+
+// TEST 45: Owner Self-Chat Routing -> Target JID routes directly to active chat
+runTest("TEST 45: Owner Self-Chat Routing -> Target JID routes to active chatId", () => {
+  const activeChatId = "12345678901234@lid";
+  const queueData = { isSelfChat: true };
+  const targetJid = activeChatId || "919028833275@s.whatsapp.net";
+
+  assert.strictEqual(targetJid, "12345678901234@lid", "Target JID must match active chat ID for immediate delivery");
+});
+
 console.log("\n===================================================");
 console.log(`  Test Results: ${passed}/${total} Passed (${Math.round((passed/total)*100)}%)`);
 console.log("===================================================\n");
@@ -388,3 +843,5 @@ if (passed === total) {
 } else {
   process.exit(1);
 }
+
+

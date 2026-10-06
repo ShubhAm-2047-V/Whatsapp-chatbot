@@ -18,12 +18,23 @@ const path = require("path");
 const qrcode = require("qrcode-terminal");
 const businessInfo = require("./business-info");
 const { GEMINI_API_KEY, GEMINI_API_KEYS, GEMINI_MODEL } = require("./config");
-const { generateQuotationPDF } = require("./utils/pdfGenerator");
+const { generateQuotationPDF, generateCustomDocumentPDF } = require("./utils/pdfGenerator");
 const { generatePaymentQR } = require("./utils/paymentQR");
+const {
+  parseScheduleCommand,
+  parseScheduleTime,
+  formatScheduleDisplay,
+  resolveRecipient,
+  addScheduledMessage,
+  cancelScheduledMessage,
+  listScheduledMessages,
+  startSchedulerEngine,
+} = require("./utils/messageScheduler");
+const { recordContact, findContact, loadContacts } = require("./utils/contactsStore");
 
 // ---------- CONFIG & OWNER CONTACT ----------
-const OWNER_PHONE = "+91 90288 33275";
-const OWNER_JID = "919028833275@s.whatsapp.net";
+const OWNER_PHONE = process.env.OWNER_PHONE || "+91 90288 33275";
+const OWNER_JID = process.env.OWNER_JID || "919028833275@s.whatsapp.net";
 const IGNORE_GROUPS = true;
 const FILTER_PERSONAL_MESSAGES = true;
 const MAX_HISTORY_TURNS = 50; // Deep long-term conversation memory (50 turns)
@@ -115,6 +126,8 @@ const pausedChats = new Set();
 const processedMsgKeys = new Set();
 const botSentMsgIds = new Set();
 const lastOwnerAlertTimestamps = new Map(); // chatId -> timestamp of last owner notification
+const recentSentMessages = []; // Ring buffer: Array<{ key, jid, text, timestamp }>
+const sentMessagesByChat = new Map(); // jid -> Array<{ key, text, timestamp }>
 
 /**
  * Dispatches a message safely while tracking its message ID to prevent self-echo loops
@@ -130,6 +143,23 @@ async function dispatchBotMessage(sock, jid, content, options = {}) {
         const firstKey = botSentMsgIds.values().next().value;
         botSentMsgIds.delete(firstKey);
       }
+
+      // Record message key for recall / unsend / delete message feature
+      const record = {
+        key: sent.key,
+        jid,
+        text: typeof content === "string" ? content : (content?.text || content?.caption || "[Media/Attachment]"),
+        timestamp: Date.now(),
+      };
+      if (!sentMessagesByChat.has(jid)) {
+        sentMessagesByChat.set(jid, []);
+      }
+      const chatArr = sentMessagesByChat.get(jid);
+      chatArr.push(record);
+      if (chatArr.length > 50) chatArr.shift();
+
+      recentSentMessages.push(record);
+      if (recentSentMessages.length > 200) recentSentMessages.shift();
     }
     return sent;
   } catch (err) {
@@ -182,6 +212,7 @@ function getAllApiKeys() {
 }
 
 let activeKeyIndex = 0;
+const keyCooldowns = new Map(); // key -> cooldownExpiryTimestamp
 
 async function executeGeminiRequest(payload) {
   const keys = getAllApiKeys();
@@ -189,9 +220,25 @@ async function executeGeminiRequest(payload) {
     throw new Error("No Gemini API keys configured!");
   }
 
+  const now = Date.now();
   const totalKeys = keys.length;
-  for (let attempt = 0; attempt < totalKeys; attempt++) {
-    const keyIdx = (activeKeyIndex + attempt) % totalKeys;
+
+  // Filter keys that are not currently cooling down from 429 rate limits
+  const availableIndices = [];
+  for (let i = 0; i < totalKeys; i++) {
+    const k = keys[i];
+    const cooldown = keyCooldowns.get(k) || 0;
+    if (now >= cooldown) {
+      availableIndices.push(i);
+    }
+  }
+
+  const indicesToTry = availableIndices.length > 0
+    ? availableIndices
+    : Array.from({ length: totalKeys }, (_, i) => i);
+
+  for (let attempt = 0; attempt < indicesToTry.length; attempt++) {
+    const keyIdx = indicesToTry[(activeKeyIndex + attempt) % indicesToTry.length];
     const key = keys[keyIdx];
 
     for (const model of GEMINI_MODELS) {
@@ -204,13 +251,16 @@ async function executeGeminiRequest(payload) {
         });
 
         if (res.status === 429) {
-          console.warn(`⚠️ [API ROTATION] Key #${keyIdx + 1} (${model}) rate limited (429). Trying fallback model...`);
-          continue; // Try next model on this key before switching keys!
+          console.warn(`⚠️ [API ROTATION] Key #${keyIdx + 1} (${model}) rate limited (429). Setting 60s cooldown & switching key...`);
+          keyCooldowns.set(key, Date.now() + 60000);
+          break; // Break model loop and switch to next key immediately
         }
 
         if (!res.ok) continue;
 
         const data = await res.json();
+        // Advance activeKeyIndex for balanced round-robin across healthy keys
+        activeKeyIndex = (keyIdx + 1) % totalKeys;
         return data;
       } catch (err) {
         console.warn(`[Gemini API] Key #${keyIdx + 1} (${model}) error:`, err.message);
@@ -225,12 +275,30 @@ async function executeGeminiRequest(payload) {
 function isOwnerChatId(chatId, chat = null) {
   if (!chatId) return true;
   if (chatId === OWNER_JID) return true;
+
+  const cleanOwnerDigits = (process.env.OWNER_PHONE || OWNER_PHONE || "").replace(/\D/g, "");
+  const cleanOwnerJidDigits = (process.env.OWNER_JID || OWNER_JID || "").split("@")[0].replace(/\D/g, "");
+  const cleanChatDigits = chatId.split("@")[0].replace(/\D/g, "");
+
+  if (cleanChatDigits && cleanOwnerDigits && (cleanChatDigits === cleanOwnerDigits || cleanChatDigits.endsWith(cleanOwnerDigits) || cleanOwnerDigits.endsWith(cleanChatDigits))) return true;
+  if (cleanChatDigits && cleanOwnerJidDigits && (cleanChatDigits === cleanOwnerJidDigits || cleanChatDigits.endsWith(cleanOwnerJidDigits) || cleanOwnerJidDigits.endsWith(cleanChatDigits))) return true;
+  if (cleanChatDigits === "919028833275" || cleanChatDigits === "9028833275") return true;
+
   const myJid = currentSock?.user?.id;
   const myLid = currentSock?.user?.lid;
-  if (myJid && chatId.startsWith(myJid.split(":")[0])) return true;
-  if (myLid && chatId === myLid) return true;
-  const cleanPhone = chatId.split("@")[0].replace(/\D/g, "");
-  if (cleanPhone === "919028833275" || cleanPhone === "9028833275") return true;
+
+  if (myJid) {
+    const myJidUser = myJid.split("@")[0].split(":")[0];
+    const chatUser = chatId.split("@")[0].split(":")[0];
+    if (chatUser === myJidUser || chatId.startsWith(myJidUser) || myJid.startsWith(chatUser)) return true;
+  }
+
+  if (myLid) {
+    const myLidUser = myLid.split("@")[0].split(":")[0];
+    const chatUser = chatId.split("@")[0].split(":")[0];
+    if (chatUser === myLidUser || chatId.startsWith(myLidUser) || myLid.startsWith(chatUser)) return true;
+  }
+
   if (chat && chat.name && /Shubham \(Owner\)/i.test(chat.name)) return true;
   return false;
 }
@@ -330,9 +398,181 @@ If it is just a normal query (e.g. "Show me active chats", "Who is Deepa?", "Hel
 }
 
 // ------------------------------------------------------------
+//  MESSAGE UNSEND & RECALL ENGINE (Self-Chat WhatsApp Message Deletion)
+// ------------------------------------------------------------
+async function handleOwnerMessageUnsendOrDelete(userMessage, sock = null) {
+  if (!userMessage) return null;
+  const clean = userMessage.trim();
+
+  // Pattern detection for unsend / delete message
+  const isUnsendOrDeleteMsg =
+    /(?:delete|unsend|recall|cancel|revoke|remove)\s+(?:that|the|last|sent|this)?\s*(?:message|msg|text)\b/i.test(clean) ||
+    /^(?:unsend|recall|revoke)\b/i.test(clean) ||
+    /^delete\s+(?:that|this)\b/i.test(clean) ||
+    /(?:delete|unsend|recall|cancel)\s+(?:message|msg)\s*(?:sent\s+to|to\s+|for\s+)/i.test(clean);
+
+  if (!isUnsendOrDeleteMsg) return null;
+
+  const activeSock = sock || currentSock;
+
+  // Extract recipient if specified (e.g. "delete that message sent to nitesh", "unsend message to deepa")
+  let recipientCandidate = null;
+  const targetMatch = clean.match(/(?:sent\s+to|to\s+|for\s+|of\s+)([a-zA-Z0-9 +_#@.-]+)/i);
+  if (targetMatch) {
+    recipientCandidate = targetMatch[1].trim().replace(/[!?,.;]+$/, "");
+  }
+
+  // Also check if any known contact name is mentioned in userMessage
+  if (!recipientCandidate) {
+    const contacts = loadContacts();
+    for (const c of Object.values(contacts)) {
+      if (c.name && c.name.length >= 3 && clean.toLowerCase().includes(c.name.toLowerCase())) {
+        recipientCandidate = c.name;
+        break;
+      }
+    }
+  }
+
+  // 1. If recipient is specified
+  if (recipientCandidate) {
+    // A. First check if there is a pending scheduled message to cancel
+    const cancelRes = cancelScheduledMessage(recipientCandidate);
+    if (cancelRes.success) {
+      return (
+`🗑️ *[SCHEDULED MESSAGE CANCELLED]* ✅
+
+• *Recipient:* ${cancelRes.task.recipientName}
+• *Scheduled Time:* ${cancelRes.task.targetTimeFormatted}
+• *Cancelled Message:* "${cancelRes.task.message}"
+
+_This scheduled message has been removed from queue and will NOT be sent._ 🛑`
+      );
+    }
+
+    // B. Check recipient contact info
+    const contact = resolveRecipient(recipientCandidate);
+    const targetChatId = contact?.chatId;
+
+    if (targetChatId) {
+      const messagesArr = sentMessagesByChat.get(targetChatId) || [];
+      const lastSent = messagesArr.length > 0 ? messagesArr[messagesArr.length - 1] : null;
+
+      // Unsend WhatsApp message if key is tracked
+      let waUnsent = false;
+      if (lastSent && lastSent.key && activeSock) {
+        try {
+          await activeSock.sendMessage(targetChatId, {
+            delete: lastSent.key,
+          });
+          waUnsent = true;
+          messagesArr.pop();
+        } catch (unsendErr) {
+          console.warn(`Could not unsend message on WhatsApp to ${targetChatId}:`, unsendErr.message);
+        }
+      }
+
+      // Also clean up from chat history
+      const allData = loadAllChatHistory();
+      let cleanedFromHistory = false;
+      let recalledText = lastSent?.text || "";
+
+      if (allData[targetChatId] && Array.isArray(allData[targetChatId].messages)) {
+        const msgs = allData[targetChatId].messages;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === "assistant" || msgs[i].role === "user") {
+            if (!recalledText) recalledText = msgs[i].text;
+            msgs.splice(i, 1);
+            cleanedFromHistory = true;
+            break;
+          }
+        }
+        if (cleanedFromHistory) {
+          saveAllChatHistory(allData);
+        }
+      }
+
+      const displayName = contact.name || recipientCandidate;
+      const displayPhone = contact.phone ? ` (+${contact.phone})` : "";
+
+      if (waUnsent || cleanedFromHistory || lastSent) {
+        return (
+`🗑️ *[WHATSAPP MESSAGE UNSENT & DELETED]* ⚡
+
+• *Recipient:* ${displayName}${displayPhone}
+• *Status:* ${waUnsent ? "Message revoked and deleted for everyone on WhatsApp!" : "Message removed from active chat record!"} ✅
+${recalledText ? `• *Deleted Message:* "${recalledText}"` : ""}
+
+_The message was successfully removed._ 🤝`
+        );
+      } else {
+        return (
+`⚠️ *[NO RECENT SENT MESSAGE FOUND]*
+
+I could not find an active recent message sent to "*${displayName}*" to delete or unsend.
+_If you sent it manually from your WhatsApp app, you can long-press and tap "Delete for Everyone" directly in the chat._`
+        );
+      }
+    }
+  }
+
+  // 2. If no specific recipient specified -> find most recent outbound message from any client
+  const validOutbounds = recentSentMessages.filter(m => m.jid !== OWNER_JID);
+  if (validOutbounds.length > 0) {
+    const lastSent = validOutbounds[validOutbounds.length - 1];
+    let waUnsent = false;
+    if (lastSent.key && activeSock) {
+      try {
+        await activeSock.sendMessage(lastSent.jid, {
+          delete: lastSent.key,
+        });
+        waUnsent = true;
+        const idx = recentSentMessages.indexOf(lastSent);
+        if (idx !== -1) recentSentMessages.splice(idx, 1);
+      } catch (unsendErr) {
+        console.warn(`Could not unsend message on WhatsApp to ${lastSent.jid}:`, unsendErr.message);
+      }
+    }
+
+    // Clean from history
+    const allData = loadAllChatHistory();
+    const chatObj = allData[lastSent.jid];
+    const clientName = chatObj?.name || lastSent.jid.split("@")[0];
+
+    if (chatObj && Array.isArray(chatObj.messages)) {
+      const msgs = chatObj.messages;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === "assistant") {
+          msgs.splice(i, 1);
+          break;
+        }
+      }
+      saveAllChatHistory(allData);
+    }
+
+    return (
+`🗑️ *[LAST SENT MESSAGE UNSENT & DELETED]* ⚡
+
+• *Recipient:* ${clientName} (${lastSent.jid.split("@")[0]})
+• *Status:* ${waUnsent ? "Message revoked and deleted for everyone on WhatsApp!" : "Message removed from CRM!"} ✅
+• *Deleted Message:* "${lastSent.text}"
+
+_The message was successfully deleted!_ 🤝`
+    );
+  }
+
+  return `⚠️ *[NO RECENT SENT MESSAGE FOUND]*\n\nI couldn't find a recent sent message to delete. To delete a specific message, type:\n👉 \`Delete that message sent to <Name>\``;
+}
+
+// ------------------------------------------------------------
 //  CLIENT DATA DELETION & CRM PURGE ENGINE
 // ------------------------------------------------------------
 function handleClientDataDeletion(userMessage) {
+  if (!userMessage) return null;
+  // Guard: Never wipe client database if the intent is to delete/unsend a message or schedule
+  if (/(?:message|msg|text|sent message|that message|scheduled)/i.test(userMessage)) {
+    return null;
+  }
+
   const allData = loadAllChatHistory();
   const clientEntries = Object.entries(allData).filter(([cid, c]) => !isOwnerChatId(cid, c));
 
@@ -355,23 +595,381 @@ function handleClientDataDeletion(userMessage) {
     }
   }
 
+  if (deletedNames.length === 0) return null;
+
   saveAllChatHistory(allData);
 
   try {
-    if (fs.existsSync(LEADS_FILE)) {
-      const leadsRaw = fs.readFileSync(LEADS_FILE, "utf-8");
-      const leads = JSON.parse(leadsRaw || "[]");
-      const filteredLeads = leads.filter(l => {
-        const lname = (l.name || "").toLowerCase();
-        return !deletedNames.some(dn => lname.includes(dn.toLowerCase())) && !userMessage.toLowerCase().includes(lname.split(" ")[0]);
-      });
-      fs.writeFileSync(LEADS_FILE, JSON.stringify(filteredLeads, null, 2), "utf-8");
-    }
+    const leads = loadLeads();
+    const filteredLeads = leads.filter(l => {
+      const lname = (l.name || "").toLowerCase();
+      return !deletedNames.some(dn => lname.includes(dn.toLowerCase())) && !userMessage.toLowerCase().includes(lname.split(" ")[0]);
+    });
+    saveAllLeads(filteredLeads, true);
   } catch (e) {}
 
-  const list = deletedNames.length > 0 ? deletedNames.join(", ") : "Rahul & Deepa";
+  const list = deletedNames.join(", ");
   console.log(`🗑️ [CLIENT DATA DELETED] Permanently wiped records for: ${list}`);
   return `🗑️ *[CLIENT DATA DELETED FROM DATABASE]* ⚡\n\n• Target Client(s): *${list}*\n• Status: *Permanently removed from CRM, chat history, and active leads database!* ✅\n\nI will no longer track, remember, or message these clients.`;
+}
+
+// ------------------------------------------------------------
+//  OWNER PROPOSAL & CUSTOM PDF DISPATCH ENGINE (Self-Chat)
+// ------------------------------------------------------------
+async function handleOwnerPDFDispatch(userMessage, sock = null) {
+  if (!userMessage) return null;
+  const clean = userMessage.trim();
+
+  // Pattern detection for PDF generation & sending
+  const isPdfIntent =
+    /(?:generate|create|send|dispatch|share|give|make|write)\s+(?:(?:a|an|the|our|this)\s+)?(?:custom\s+|company\s+|project\s+|official\s+)?(?:pdf|proposal|quotation|brochure|agreement|document|note|card)/i.test(clean) ||
+    /(?:company|proposal|quotation)\s+pdf\b/i.test(clean) ||
+    /\bpdf\b.*(?:write|saying|with|text|words?|send)/i.test(clean);
+
+  if (!isPdfIntent) return null;
+
+  const activeSock = sock || currentSock;
+
+  // Extract recipient if specified
+  let recipientCandidate = null;
+  const targetMatch = clean.match(/(?:and\s+send\s+(?:that|it)?\s+to|send\s+(?:that|it)?\s+to|to|for)\s+([a-zA-Z0-9 +_#@.-]+)$/i) ||
+                      clean.match(/(?:send|share|give)\s+(?:that|it|the\s+pdf)?\s*(?:to|for)\s+([a-zA-Z0-9 +_#@.-]+)/i) ||
+                      clean.match(/(?:send|share)\s+([a-zA-Z0-9 +_#@.-]+)\s+(?:our\s+|the\s+)?(?:company\s+)?pdf/i);
+
+  if (targetMatch) {
+    recipientCandidate = targetMatch[1].trim().replace(/[!?,.;]+$/, "");
+  }
+
+  // Also check if any known contact name is mentioned in userMessage
+  if (!recipientCandidate) {
+    const contacts = loadContacts();
+    for (const c of Object.values(contacts)) {
+      if (c.name && c.name.length >= 3 && clean.toLowerCase().includes(c.name.toLowerCase())) {
+        recipientCandidate = c.name;
+        break;
+      }
+    }
+  }
+
+  // Check if custom text / custom message is requested inside the PDF
+  let customText = null;
+  const isBigWords = /big\s+words?|large|huge|bold|prominent|caps/i.test(clean);
+
+  const customTextMatch =
+    clean.match(/(?:in\s+that\s+pdf\s+write|write|saying|with\s+text|with\s+words?)\s+["']?([^"'\n]+?)["']?\s+(?:in\s+(?:big|large|huge|bold)\s+words?\s+)?(?:and\s+send|to\s+|for\s+|$)/i) ||
+    clean.match(/(?:write|saying)\s+["']?([^"'\n]+?)["']?\s+in\s+that\s+pdf/i);
+
+  if (customTextMatch) {
+    customText = customTextMatch[1].trim().replace(/^["']|["']$/g, "");
+  }
+
+  // 1. If recipient is specified
+  if (recipientCandidate && !/^(?:me|self|myself|us|here)$/i.test(recipientCandidate)) {
+    const contact = resolveRecipient(recipientCandidate);
+    const targetChatId = contact?.chatId;
+
+    if (targetChatId && activeSock) {
+      const clientName = contact.name || recipientCandidate;
+      const targetPhoneDisplay = contact.phone ? ` (+${contact.phone})` : ` (+${targetChatId.split("@")[0]})`;
+
+      try {
+        console.log(`📄 [GENERATING ${customText ? 'CUSTOM' : 'PROPOSAL'} PDF FOR ${clientName.toUpperCase()}] Dispatching to ${targetChatId}...`);
+        
+        let pdfBuffer;
+        let fileName;
+        let caption;
+
+        if (customText) {
+          pdfBuffer = await generateCustomDocumentPDF({
+            clientName: clientName,
+            messageText: customText,
+            isBigWords,
+          });
+          fileName = `ShubDeep_Labs_Document_${clientName.replace(/\s+/g, "_")}.pdf`;
+          caption = `Here is your official document from ShubDeep Labs! 📄✨\n\n_Delivered by Shubham Vernekar (+91 90288 33275)_ 🚀`;
+        } else {
+          pdfBuffer = await generateQuotationPDF({
+            clientName: clientName,
+            projectType: "Enterprise Full-Stack Web & AI Systems",
+            priceRange: "₹13,000",
+            timeline: "2–3 Weeks",
+          });
+          fileName = `ShubDeep_Labs_Proposal_${clientName.replace(/\s+/g, "_")}.pdf`;
+          caption = `Here is the official ShubDeep Labs Project Proposal & Agreement PDF! 📄✨\n\n• **Approved Investment:** ₹13,000\n• **Booking Advance (50%):** ₹6,500\n• **Delivery Timeline:** 2–3 Weeks\n• **Source Code:** 100% Full Ownership\n\nShubham is at your service if you have any questions! 🚀`;
+        }
+
+        await dispatchBotMessage(activeSock, targetChatId, {
+          document: pdfBuffer,
+          mimetype: "application/pdf",
+          fileName,
+          caption,
+        });
+
+        appendToChatMemory(targetChatId, "assistant", `Sent Official ShubDeep Labs PDF to ${clientName}`, clientName, true);
+
+        return (
+`🚀 *[OFFICIAL PDF DOCUMENT DELIVERED]* 📄✨
+
+👤 *To:* ${clientName}${contact.isAliasMatch ? ` (${recipientCandidate})` : ''}${targetPhoneDisplay}
+📄 *Document:* ${customText ? `Custom PDF (${customText})` : 'ShubDeep Labs Project Proposal & Agreement'}
+💬 *Status:* Generated & delivered directly to their WhatsApp chat! ✅
+
+_Delivered with official branded design!_ 🤝`
+        );
+      } catch (err) {
+        return `⚠️ Could not send PDF to ${clientName}: ${err.message}`;
+      }
+    } else {
+      return `🔍 *[CONTACT NOT FOUND]*\n\nI couldn't locate a saved WhatsApp chat for "*${recipientCandidate}*".\n👉 Please reply with their exact 10-digit WhatsApp number (e.g. \`send pdf to 919028833275\`) and I will deliver it immediately! 🚀`;
+    }
+  }
+
+  // 2. If no recipient specified (or owner asks for himself) -> send PDF directly to owner in self-chat!
+  if (activeSock) {
+    try {
+      let pdfBuffer;
+      let fileName;
+      if (customText) {
+        pdfBuffer = await generateCustomDocumentPDF({
+          clientName: "Shubham Vernekar (Owner)",
+          messageText: customText,
+          isBigWords,
+        });
+        fileName = "ShubDeep_Labs_Custom_Document.pdf";
+      } else {
+        pdfBuffer = await generateQuotationPDF({
+          clientName: "Shubham Vernekar (Owner)",
+          projectType: "Enterprise Full-Stack Web & AI Systems",
+          priceRange: "₹13,000",
+          timeline: "2–3 Weeks",
+        });
+        fileName = "ShubDeep_Labs_Official_Proposal.pdf";
+      }
+
+      await dispatchBotMessage(activeSock, OWNER_JID, {
+        document: pdfBuffer,
+        mimetype: "application/pdf",
+        fileName,
+        caption: `📄 *Here is your requested PDF document!* ✨\n\n• Branded visual layout & typography\n• Complete official terms\n\n👉 _To send this directly to any client, just tell me:_\n• \`Send company pdf to <Name>\` or \`Generate a pdf with "Thank you" and send to <Name>\``,
+      });
+
+      return `📄 *[PDF DOCUMENT GENERATED]* ✅\n\nI have generated and sent the PDF document directly above in this chat! 🚀`;
+    } catch (err) {
+      return `⚠️ Could not generate PDF: ${err.message}`;
+    }
+  }
+
+  return null;
+}
+
+// ------------------------------------------------------------
+//  SCHEDULED MESSAGE DISPATCH ENGINE (Self-Chat Command Handler)
+// ------------------------------------------------------------
+async function handleOwnerSchedulingAI(userMessage) {
+  const prompt = `You are the Scheduled Message Engine for Shubham Vernekar (Founder of ShubDeep Labs).
+Shubham is sending a command in his WhatsApp self-chat. Determine if he is instructing you to send a message to a person or client after a delay (e.g. after 10 minutes, after 15 mins, in 1 hour) or at a specific time/date (e.g. tomorrow at 10 AM, today at 5 PM).
+
+Current Timestamp: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
+Owner's Command: "${userMessage}"
+
+If the message is an instruction to schedule or send a message after a delay or at a future time/date, respond ONLY with valid JSON:
+{
+  "isScheduleIntent": true,
+  "recipient": "recipient name or phone number",
+  "delayMinutes": 10,
+  "timeSpecification": "10 minutes" or "tomorrow at 10 AM",
+  "messageText": "exact text message to send to the recipient"
+}
+
+If it is NOT a schedule command (e.g. general query, quote override, rules, stats), respond with:
+{
+  "isScheduleIntent": false
+}`;
+
+  try {
+    const data = await executeGeminiRequest({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 600,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    return cleanAndParseJson(raw);
+  } catch (e) {
+    console.warn("Could not parse scheduling with AI:", e.message);
+  }
+  return null;
+}
+
+const pendingDirectSends = new Map(); // OWNER_JID -> { message: "hello", requestedName: "mummy" }
+
+async function handleOwnerScheduling(userMessage, history = [], sock = null) {
+  if (!userMessage) return null;
+
+  // 1. Check for quick syntax or natural patterns
+  const parsedCmd = parseScheduleCommand(userMessage);
+
+  if (parsedCmd) {
+    // A. Handle instant direct send (e.g. "send hello to mummy", "send to deepa: meeting at 5", "tell mummy hello")
+    if (parsedCmd.isDirectSendCommand && parsedCmd.recipient && parsedCmd.message) {
+      const contact = resolveRecipient(parsedCmd.recipient);
+      const activeSock = sock || currentSock;
+
+      if (contact && contact.chatId && activeSock) {
+        pendingDirectSends.delete(OWNER_JID);
+        try {
+          await dispatchBotMessage(activeSock, contact.chatId, { text: parsedCmd.message });
+          appendToChatMemory(contact.chatId, "assistant", parsedCmd.message, contact.name, true);
+          console.log(`🚀 [DIRECT MESSAGE SENT] To ${contact.name} (${contact.chatId}): "${parsedCmd.message}"`);
+
+          const targetPhoneDisplay = contact.phone ? ` (+${contact.phone})` : ` (+${contact.chatId.split("@")[0]})`;
+          return (
+`🚀 *[MESSAGE SENT DIRECTLY ON WHATSAPP]* 💬✨
+
+👤 *To:* ${contact.name}${contact.isAliasMatch ? ` (${parsedCmd.recipient})` : ''}${targetPhoneDisplay}
+💬 *Message Delivered:*
+"${parsedCmd.message}"
+
+_Delivered directly to WhatsApp chat!_ 🤝`
+          );
+        } catch (sendErr) {
+          return `⚠️ Could not send message to ${contact.name}: ${sendErr.message}`;
+        }
+      } else {
+        pendingDirectSends.set(OWNER_JID, { message: parsedCmd.message, requestedName: parsedCmd.recipient });
+        return (
+`🔍 *[CONTACT SEARCH ON WHATSAPP]* 🔎
+
+I couldn't find a saved WhatsApp chat for "*${parsedCmd.recipient}*".
+
+💬 *Message Ready to Send:* "${parsedCmd.message}"
+
+👉 _Please reply with their exact name or 10-digit WhatsApp number (e.g._ \`to Deepa\` _or_ \`919028833275\`_) and I will deliver it immediately!_ 🚀`
+        );
+      }
+    }
+
+    // B. Handle recipient follow-up reply (e.g. "to Deepa Dinesh Vernekar")
+    if (parsedCmd.isDirectRecipientReply && parsedCmd.recipient) {
+      const pending = pendingDirectSends.get(OWNER_JID);
+      const activeSock = sock || currentSock;
+
+      if (pending && activeSock) {
+        const contact = resolveRecipient(parsedCmd.recipient);
+        if (contact && contact.chatId) {
+          pendingDirectSends.delete(OWNER_JID);
+          try {
+            await dispatchBotMessage(activeSock, contact.chatId, { text: pending.message });
+            appendToChatMemory(contact.chatId, "assistant", pending.message, contact.name, true);
+            console.log(`🚀 [DIRECT MESSAGE SENT VIA FOLLOWUP] To ${contact.name} (${contact.chatId}): "${pending.message}"`);
+
+            const targetPhoneDisplay = contact.phone ? ` (+${contact.phone})` : ` (+${contact.chatId.split("@")[0]})`;
+            return (
+`🚀 *[MESSAGE SENT DIRECTLY ON WHATSAPP]* 💬✨
+
+👤 *To:* ${contact.name}${targetPhoneDisplay}
+💬 *Message Delivered:*
+"${pending.message}"
+
+_Delivered directly to WhatsApp chat!_ 🤝`
+            );
+          } catch (sendErr) {
+            return `⚠️ Could not send message to ${contact.name}: ${sendErr.message}`;
+          }
+        } else {
+          return `⚠️ Could not locate a WhatsApp chat for "*${parsedCmd.recipient}*". Please provide their 10-digit WhatsApp number (e.g. \`919028833275\`).`;
+        }
+      }
+    }
+
+    if (parsedCmd.isListCommand) {
+      const pending = listScheduledMessages();
+      if (pending.length === 0) {
+        return `📋 *[NO PENDING SCHEDULED MESSAGES]*\n\nThere are currently no scheduled messages in the queue.\n\n💡 _To schedule a message, send:_\n• \`Send this message to Ayan after 10 min: Hello!\`\n• \`#schedule 919876543210 15m Meeting at 4 PM\``;
+      }
+
+      let listText = `📋 *[ACTIVE SCHEDULED MESSAGES QUEUE (${pending.length})]* ⏰\n\n`;
+      pending.forEach((task, idx) => {
+        const timeDisplay = formatScheduleDisplay(task.targetTimestamp);
+        listText += `${idx + 1}️⃣ *To:* ${task.recipientName}${task.recipientPhone ? ` (+${task.recipientPhone})` : ''}\n`;
+        listText += `   ⏰ *When:* ${timeDisplay}\n`;
+        listText += `   💬 *Message:* "${task.message}"\n`;
+        listText += `   🆔 \`#cancel-schedule ${task.id}\`\n\n`;
+      });
+      listText += `━━━━━━━━━━━━━━━━━━━━\n👉 _To cancel any message, reply:_ \`cancel scheduled message to <name>\` or \`#cancel-schedule <id>\``;
+      return listText;
+    }
+
+    if (parsedCmd.isCancelCommand) {
+      const res = cancelScheduledMessage(parsedCmd.target);
+      if (res.success) {
+        return `🗑️ *[SCHEDULED MESSAGE CANCELLED]* ✅\n\n• *Recipient:* ${res.task.recipientName}\n• *Scheduled Time:* ${res.task.targetTimeFormatted}\n• *Message:* "${res.task.message}"\n\n_This message has been removed from the queue and will NOT be sent._`;
+      } else {
+        return `⚠️ *[COULD NOT CANCEL]*\n\n${res.message}\nSend \`#scheduled\` to view active scheduled messages.`;
+      }
+    }
+
+    if (parsedCmd.isScheduleCommand && parsedCmd.timeParsed && parsedCmd.message) {
+      const task = addScheduledMessage(
+        parsedCmd.recipient,
+        parsedCmd.timeParsed.targetTimestamp,
+        parsedCmd.message,
+        "Shubham (Owner)"
+      );
+
+      return (
+`⏳ *[MESSAGE SCHEDULED SUCCESSFULLY]* 📅✨
+
+👤 *Recipient:* ${task.recipientName}${task.recipientPhone ? ` (+${task.recipientPhone})` : ''}
+⏰ *Delivery Time:* ${task.targetTimeFormatted}
+💬 *Message to Send:*
+"${task.message}"
+
+━━━━━━━━━━━━━━━━━━━━
+_I have saved this to my scheduler database. It will be delivered automatically right on time!_ 🚀${task.isUnregistered ? `\n\n💡 _Note: "${task.recipientName}" was not found in existing WhatsApp contacts. I will search for their chat when dispatching, or you can provide their direct phone number (e.g. #schedule +919876543210 10m Hello)._` : ''}`
+      );
+    }
+  }
+
+  // 2. AI Fallback for complex / mixed / multilingual phrasings
+  if (/after|minute|min|hour|schedule|pathav|bhejo|kal|udya|tomorrow|today at|later|nantar/i.test(userMessage)) {
+    const aiResult = await handleOwnerSchedulingAI(userMessage);
+    if (aiResult && aiResult.isScheduleIntent && aiResult.recipient && aiResult.messageText) {
+      let timeParsed = parseScheduleTime(aiResult.timeSpecification || (aiResult.delayMinutes ? `${aiResult.delayMinutes}m` : null));
+      if (!timeParsed && aiResult.delayMinutes) {
+        timeParsed = {
+          targetTimestamp: Date.now() + aiResult.delayMinutes * 60 * 1000,
+          delayMs: aiResult.delayMinutes * 60 * 1000,
+        };
+      }
+
+      if (timeParsed) {
+        const task = addScheduledMessage(
+          aiResult.recipient,
+          timeParsed.targetTimestamp,
+          aiResult.messageText,
+          "Shubham (Owner)"
+        );
+
+        return (
+`⏳ *[MESSAGE SCHEDULED SUCCESSFULLY]* 📅✨
+
+👤 *Recipient:* ${task.recipientName}${task.recipientPhone ? ` (+${task.recipientPhone})` : ''}
+⏰ *Delivery Time:* ${task.targetTimeFormatted}
+💬 *Message to Send:*
+"${task.message}"
+
+━━━━━━━━━━━━━━━━━━━━
+_I have saved this to my scheduler database. It will be delivered automatically right on time!_ 🚀${task.isUnregistered ? `\n\n💡 _Note: "${task.recipientName}" was not found in existing CRM contacts. I will search for their chat when dispatching, or you can provide their direct phone number._` : ''}`
+        );
+      }
+    }
+  }
+
+  return null;
 }
 
 // ------------------------------------------------------------
@@ -596,27 +1194,65 @@ _The client has received this directly in her WhatsApp chat!_ 🤝`
 }
 
 // ------------------------------------------------------------
-//  PERSISTENT CHAT HISTORY STORAGE (Remembers 1-3+ Months)
+//  PERSISTENT CHAT HISTORY STORAGE (In-Memory Cache + Debounced Persistence)
 // ------------------------------------------------------------
+let cachedChatHistory = null;
+let chatHistorySaveTimeout = null;
+let isChatHistoryDirty = false;
+
 function loadAllChatHistory() {
+  if (cachedChatHistory !== null) {
+    return cachedChatHistory;
+  }
   try {
     if (fs.existsSync(CHAT_HISTORY_FILE)) {
       const raw = fs.readFileSync(CHAT_HISTORY_FILE, "utf-8");
-      return JSON.parse(raw || "{}");
+      cachedChatHistory = JSON.parse(raw || "{}");
+      return cachedChatHistory;
     }
   } catch (e) {
     console.warn("⚠️ Could not load chat history file:", e.message);
   }
-  return {};
+  cachedChatHistory = {};
+  return cachedChatHistory;
 }
 
-function saveAllChatHistory(allData) {
-  try {
-    fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(allData, null, 2), "utf-8");
-  } catch (e) {
-    console.warn("⚠️ Could not write chat history file:", e.message);
+function saveAllChatHistory(allData, immediate = false) {
+  cachedChatHistory = allData;
+  isChatHistoryDirty = true;
+
+  if (immediate) {
+    if (chatHistorySaveTimeout) clearTimeout(chatHistorySaveTimeout);
+    try {
+      fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(cachedChatHistory, null, 2), "utf-8");
+      isChatHistoryDirty = false;
+    } catch (e) {
+      console.warn("⚠️ Could not write chat history file immediately:", e.message);
+    }
+    return;
   }
+
+  if (chatHistorySaveTimeout) clearTimeout(chatHistorySaveTimeout);
+  chatHistorySaveTimeout = setTimeout(() => {
+    try {
+      if (isChatHistoryDirty && cachedChatHistory) {
+        fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(cachedChatHistory, null, 2), "utf-8");
+        isChatHistoryDirty = false;
+      }
+    } catch (e) {
+      console.warn("⚠️ Could not write chat history file async:", e.message);
+    }
+  }, 300);
 }
+
+// Flush pending chat history changes on process shutdown
+process.on("exit", () => {
+  if (isChatHistoryDirty && cachedChatHistory) {
+    try {
+      fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(cachedChatHistory, null, 2), "utf-8");
+    } catch (e) {}
+  }
+});
 
 function saveChatMemory(chatId, memory) {
   const all = loadAllChatHistory();
@@ -978,15 +1614,67 @@ ${clientEmail ? `📧 *Email:* \`${clientEmail}\`\n` : ""}💡 *Project:* ${proj
 }
 
 // ------------------------------------------------------------
-//  AUTOMATIC LEAD CAPTURE & CRM STORAGE
+//  AUTOMATIC LEAD CAPTURE & CRM STORAGE (In-Memory Cache + Debounced Persistence)
 // ------------------------------------------------------------
-function saveLead(leadData) {
+let cachedLeads = null;
+let leadsSaveTimeout = null;
+let isLeadsDirty = false;
+
+function loadLeads() {
+  if (cachedLeads !== null) return cachedLeads;
   try {
-    let leads = [];
     if (fs.existsSync(LEADS_FILE)) {
       const raw = fs.readFileSync(LEADS_FILE, "utf-8");
-      leads = JSON.parse(raw || "[]");
+      cachedLeads = JSON.parse(raw || "[]");
+      return cachedLeads;
     }
+  } catch (e) {
+    console.warn("Could not load leads:", e.message);
+  }
+  cachedLeads = [];
+  return cachedLeads;
+}
+
+function saveAllLeads(leads, immediate = false) {
+  cachedLeads = leads;
+  isLeadsDirty = true;
+
+  if (immediate) {
+    if (leadsSaveTimeout) clearTimeout(leadsSaveTimeout);
+    try {
+      fs.writeFileSync(LEADS_FILE, JSON.stringify(cachedLeads, null, 2), "utf-8");
+      isLeadsDirty = false;
+    } catch (e) {
+      console.warn("Could not write leads file immediately:", e.message);
+    }
+    return;
+  }
+
+  if (leadsSaveTimeout) clearTimeout(leadsSaveTimeout);
+  leadsSaveTimeout = setTimeout(() => {
+    try {
+      if (isLeadsDirty && cachedLeads) {
+        fs.writeFileSync(LEADS_FILE, JSON.stringify(cachedLeads, null, 2), "utf-8");
+        isLeadsDirty = false;
+      }
+    } catch (e) {
+      console.warn("Could not write leads file async:", e.message);
+    }
+  }, 300);
+}
+
+// Flush pending leads changes on exit
+process.on("exit", () => {
+  if (isLeadsDirty && cachedLeads) {
+    try {
+      fs.writeFileSync(LEADS_FILE, JSON.stringify(cachedLeads, null, 2), "utf-8");
+    } catch (e) {}
+  }
+});
+
+function saveLead(leadData) {
+  try {
+    const leads = loadLeads();
 
     const newLead = {
       id: Date.now().toString(36),
@@ -996,7 +1684,7 @@ function saveLead(leadData) {
     };
 
     leads.unshift(newLead);
-    fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2), "utf-8");
+    saveAllLeads(leads);
     console.log(`🔥 [LEAD CAPTURED] ${leadData.name || leadData.chatId} — Priority: ${newLead.priority}`);
   } catch (e) {
     console.warn("Could not save lead:", e.message);
@@ -1604,8 +2292,8 @@ async function processBatchedMessages(chatId, sock) {
     const activeSock = currentSock || sock;
 
     // 0. Admin Fast Commands (#stats, #pause, #resume, #help)
-    const isSelfChat = !!queueData.isSelfChat || (chatId === OWNER_JID);
-    const targetJid = isSelfChat ? OWNER_JID : chatId;
+    const isSelfChat = !!queueData.isSelfChat || isOwnerChatId(chatId);
+    const targetJid = chatId || OWNER_JID;
 
     if (cleanCmd.startsWith("#")) {
       if (cleanCmd === "#stats" || cleanCmd === "#leads") {
@@ -1641,10 +2329,14 @@ async function processBatchedMessages(chatId, sock) {
         const helpReply = 
 `🛠️ *[AVAILABLE BOT COMMANDS]* 🛠️
 
-👑 *Admin Commands (You can send):*
+👑 *Admin Commands (You can send in WhatsApp):*
 • \`#stats\` or \`#leads\` — View total active leads & stats
 • \`#pause\` — Pause AI bot for this customer chat
 • \`#resume\` — Resume AI bot for this customer chat
+• \`#scheduled\` — View all pending scheduled messages
+• \`Send to <Name> after 10 min: <Message>\` — Schedule message dispatch
+• \`#schedule <Phone/Name> <Time> <Message>\` — Fast message schedule
+• \`cancel scheduled message to <Name>\` — Cancel pending scheduled message
 
 💬 *Customer Triggers (What clients can ask):*
 • *"Pricing / Cost / Quote"* — Ballpark estimates + Founder intro
@@ -1668,19 +2360,29 @@ async function processBatchedMessages(chatId, sock) {
         await activeSock.sendPresenceUpdate("composing", targetJid);
       } catch (e) {}
 
-      // A. Check if owner is asking to delete or wipe a client from the CRM database
-      const isDeleteQuery = /delete|remove|clear|erase|wipe|purge|don't want to work with|dont want to work with|also of rahul|also rahul|also deepa/i.test(combinedText);
-      if (isDeleteQuery) {
-        const deleteReply = handleClientDataDeletion(combinedText);
-        if (deleteReply) {
-          await dispatchBotMessage(activeSock, targetJid, { text: deleteReply });
-          appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
-          appendToChatMemory(chatId, "assistant", deleteReply, "Shubham (Owner)", true);
-          return;
-        }
+      // 1. Check if owner is asking to unsend or delete a message sent to a recipient or last message
+      const unsendReply = await handleOwnerMessageUnsendOrDelete(combinedText, activeSock);
+      if (unsendReply) {
+        await dispatchBotMessage(activeSock, targetJid, { text: unsendReply });
+        appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
+        appendToChatMemory(chatId, "assistant", unsendReply, "Shubham (Owner)", true);
+        console.log(`🗑️ [MESSAGE UNSEND/DELETE EXECUTED FOR OWNER]`);
+        return;
       }
 
-      // B. Check if owner is confirming a pending quote dispatch (e.g. "Send", "Send to Deepa", "Yes", "go and send it", "it is correct so send her", "send her on whatsapp")
+      // 2. Check if owner is asking to generate & send company / proposal PDF to a contact or self
+      const pdfReply = await handleOwnerPDFDispatch(combinedText, activeSock);
+      if (pdfReply) {
+        if (!pdfReply.includes("[PROPOSAL PDF GENERATED]")) {
+          await dispatchBotMessage(activeSock, targetJid, { text: pdfReply });
+        }
+        appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
+        appendToChatMemory(chatId, "assistant", pdfReply, "Shubham (Owner)", true);
+        console.log(`📄 [PDF DISPATCH ACTION EXECUTED FOR OWNER]`);
+        return;
+      }
+
+      // 3. Check if owner is confirming a pending quote dispatch (e.g. "Send", "Send to Deepa", "Yes", "go and send it", "it is correct so send her", "send her on whatsapp")
       const pending = pendingQuoteDispatches.get(OWNER_JID);
       const isSendCmd = /^(send|yes|send it|send to|ok send|dispatch|it is correct|send her|go and send|send on whatsapp|correct|ha pathav|pathav)/i.test(cleanCmd) ||
                         /send her|send it|go and send|send on whatsapp|correct so send/i.test(combinedText.toLowerCase());
@@ -1701,11 +2403,40 @@ async function processBatchedMessages(chatId, sock) {
         }
       }
 
-      // B. Check if owner is asking to customize/revise a quote for a specific client
+      // 3. Check if owner is scheduling a message or instant sending (e.g. "Send this message to Ayan after 10 min: ...", "Send hello to nitesh", "#scheduled", etc.)
+      const scheduleReply = await handleOwnerScheduling(combinedText, history, activeSock);
+      if (scheduleReply) {
+        await dispatchBotMessage(activeSock, targetJid, { text: scheduleReply });
+        appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
+        appendToChatMemory(chatId, "assistant", scheduleReply, "Shubham (Owner)", true);
+        console.log(`⏰ [SCHEDULE ACTION EXECUTED FOR OWNER]`);
+        return;
+      }
+
+      // 4. Check if owner is asking to permanently wipe/delete client records or CRM database (Strict check)
+      const isClientWipeQuery = (
+        /(?:delete|wipe|purge|remove|erase|clear)\s+(?:client|contact|lead|customer|user|data|records?|chat\s+history|database|crm|profile|account|info|details)\b/i.test(combinedText) ||
+        /(?:delete|wipe|purge|remove|erase|clear)\s+(?:all\s+)?(?:data\s+of|records?\s+of|history\s+of)\b/i.test(combinedText) ||
+        /(?:wipe|purge)\s+[a-zA-Z]+/i.test(combinedText) ||
+        /don't want to work with|dont want to work with|permanently delete\s+[a-zA-Z]+/i.test(combinedText) ||
+        /also of rahul|also rahul|also deepa/i.test(combinedText)
+      ) && !/(?:message|msg|text|sent message|that message|scheduled)/i.test(combinedText);
+
+      if (isClientWipeQuery) {
+        const deleteReply = handleClientDataDeletion(combinedText);
+        if (deleteReply) {
+          await dispatchBotMessage(activeSock, targetJid, { text: deleteReply });
+          appendToChatMemory(chatId, "user", combinedText, "Shubham (Owner)", true);
+          appendToChatMemory(chatId, "assistant", deleteReply, "Shubham (Owner)", true);
+          return;
+        }
+      }
+
+      // C. Check if owner is asking to customize/revise a quote for a specific client
       const quoteOverrideReply = await handleClientQuoteOverride(combinedText, history, activeSock);
       let ownerReply = quoteOverrideReply;
 
-      // C. Check if owner is teaching or customizing the bot
+      // D. Check if owner is teaching or customizing the bot
       if (!ownerReply) {
         ownerReply = await handleOwnerConfiguration(combinedText);
       }
@@ -2179,6 +2910,51 @@ async function startBot() {
       console.log("===================================================\n");
 
       startFollowUpEngine();
+      startSchedulerEngine(currentSock, dispatchBotMessage, appendToChatMemory, dispatchBotMessage, OWNER_JID);
+    }
+  });
+
+  // Sync WhatsApp Contacts & Chats in real-time
+  sock.ev.on("messaging-history.set", ({ chats, contacts }) => {
+    if (contacts) {
+      for (const c of contacts) {
+        if (c.id) recordContact(c.id, { name: c.name || c.notify || c.verifiedName });
+      }
+    }
+    if (chats) {
+      for (const c of chats) {
+        if (c.id) recordContact(c.id, { name: c.name });
+      }
+    }
+  });
+
+  sock.ev.on("contacts.set", ({ contacts }) => {
+    for (const c of contacts || []) {
+      if (c.id) recordContact(c.id, { name: c.name || c.notify || c.verifiedName });
+    }
+  });
+
+  sock.ev.on("contacts.upsert", (contacts) => {
+    for (const c of contacts) {
+      if (c.id) recordContact(c.id, { name: c.name || c.notify || c.verifiedName });
+    }
+  });
+
+  sock.ev.on("contacts.update", (contacts) => {
+    for (const c of contacts) {
+      if (c.id) recordContact(c.id, { name: c.name || c.notify || c.verifiedName });
+    }
+  });
+
+  sock.ev.on("chats.upsert", (chats) => {
+    for (const c of chats) {
+      if (c.id) recordContact(c.id, { name: c.name });
+    }
+  });
+
+  sock.ev.on("chats.update", (chats) => {
+    for (const c of chats) {
+      if (c.id) recordContact(c.id, { name: c.name });
     }
   });
 
@@ -2195,10 +2971,29 @@ async function startBot() {
           processedMsgKeys.delete(firstKey);
         }
 
-        // Deep unwrap any message wrappers (ephemeral, viewOnce, etc.)
+        // Deep unwrap any message wrappers (deviceSent, ephemeral, viewOnce, etc.)
         let m = msg.message;
-        while (m.ephemeralMessage || m.viewOnceMessage || m.viewOnceMessageV2 || m.documentWithCaptionMessage) {
-          m = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m.documentWithCaptionMessage?.message || m;
+        while (
+          m &&
+          (m.ephemeralMessage ||
+            m.viewOnceMessage ||
+            m.viewOnceMessageV2 ||
+            m.viewOnceMessageV2Extension ||
+            m.documentWithCaptionMessage ||
+            m.deviceSentMessage ||
+            m.futureproofMessage ||
+            m.interactiveMessage)
+        ) {
+          m =
+            m.ephemeralMessage?.message ||
+            m.viewOnceMessage?.message ||
+            m.viewOnceMessageV2?.message ||
+            m.viewOnceMessageV2Extension?.message ||
+            m.documentWithCaptionMessage?.message ||
+            m.deviceSentMessage?.message ||
+            m.futureproofMessage?.message ||
+            m.interactiveMessage?.message ||
+            m;
         }
 
         // Extract text content across all possible WhatsApp message types
@@ -2211,12 +3006,14 @@ async function startBot() {
           m.buttonsResponseMessage?.selectedButtonId ||
           m.listResponseMessage?.singleSelectReply?.selectedRowId ||
           m.templateButtonReplyMessage?.selectedId ||
+          m.interactiveResponseMessage?.body?.text ||
+          m.interactiveMessage?.body?.text ||
           "";
 
-        // 1. Ignore historical backlog messages synced from before the bot started
+        // 1. Ignore historical backlog messages synced from well before the bot started (10 min safety window)
         const rawTs = msg.messageTimestamp;
         const msgTimestampMs = (typeof rawTs === "number" ? rawTs : (rawTs?.low || 0)) * 1000;
-        if (msgTimestampMs && msgTimestampMs < botStartTime - 15000) {
+        if (msgTimestampMs && msgTimestampMs < botStartTime - (10 * 60 * 1000)) {
           continue;
         }
 
@@ -2228,6 +3025,8 @@ async function startBot() {
           text.startsWith("🚨 *[HOT LEAD NOTIFICATION]*") ||
           text.startsWith("📊 *[SHUBDEEP LABS") ||
           text.startsWith("🎯 *[PROJECT TERMS") ||
+          text.startsWith("⏳ *[MESSAGE SCHEDULED") ||
+          text.startsWith("🚀 *[SCHEDULED MESSAGE") ||
           text.startsWith("⚠️ Executive AI Error") ||
           text.startsWith("🚀 *Quotation of") ||
           text.startsWith("📰 *[SHUBDEEP LABS") ||
@@ -2241,19 +3040,34 @@ async function startBot() {
 
         const chatId = msg.key.remoteJid;
         const fromMe = !!msg.key.fromMe;
-        const isCommand = text.trim().startsWith("#");
+        const isOwner = isOwnerChatId(chatId);
+        const isSelfChat = isOwner;
 
-        // Check if this chat belongs to an existing client in CRM
-        const allData = loadAllChatHistory();
-        const isClientChat = !!(allData[chatId] && !isOwnerChatId(chatId, allData[chatId]));
-        const isSelfChat = isOwnerChatId(chatId) || (!isClientChat && fromMe);
+        const isCommand =
+          text.trim().startsWith("#") ||
+          /^(?:send|quote|update|delete|cancel|show|list|we now|always|remember|new office|after|schedule|stats|leads|pause|resume|help)/i.test(text.trim());
 
-        // Inside a CLIENT chat: skip manual typing from owner phone unless it starts with '#'
-        if (fromMe && isClientChat && !isCommand) {
-          continue;
+        // Inside a CLIENT chat: if owner manually types, record it to CRM memory and avoid self-reply loop
+        if (fromMe && !isSelfChat) {
+          if (!isCommand) {
+            if (text.trim()) {
+              appendToChatMemory(chatId, "assistant", text.trim(), "Shubham (Owner)", true);
+              console.log(`📝 [OWNER MESSAGE CAPTURED IN CRM] For ${chatId}: "${text.trim().replace(/\n/g, ' ')}"`);
+            }
+            continue;
+          }
         }
 
+        // Mark message as read (blue ticks)
+        try {
+          await sock.readMessages([msg.key]);
+        } catch (e) {}
+
         const senderName = isSelfChat ? "Shubham (Owner)" : (msg.pushName || chatId.split("@")[0]);
+
+        if (chatId && msg.pushName) {
+          recordContact(chatId, { name: msg.pushName });
+        }
 
         // Ignore WhatsApp Statuses, Stories, Channels, and Groups
         if (
@@ -2290,7 +3104,7 @@ async function startBot() {
 
         if (!text.trim() && mediaItems.length === 0) continue;
 
-        console.log(`📥 [INCOMING] From ${senderName} (${chatId}): "${text.replace(/\n/g, ' ')}"`);
+        console.log(`📥 [INCOMING] From ${senderName} (${chatId}, fromMe: ${fromMe}): "${text.replace(/\n/g, ' ')}"`);
 
         const existing = messageQueue.get(chatId) || {
           timer: null,

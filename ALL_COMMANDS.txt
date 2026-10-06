@@ -36,6 +36,17 @@ You (the Owner) can send these commands directly inside any WhatsApp chat:
   -> "We now offer Flutter mobile apps starting at 25000"
   -> "Always offer 10% discount for college students"
 
+• ⏰ SCHEDULED MESSAGE DISPATCH (TYPE IN YOUR SELF-CHAT):
+  -> "Send this message to Ayan after 10 min: Hey Ayan, please check the proposal"
+  -> "Send to Deepa after 15 mins saying let's connect tomorrow"
+  -> "After 30 minutes tell Rahul that meeting is at 5 PM"
+  -> "Send message to Ayan tomorrow at 10 AM: Reminder for kickoff call"
+  -> "#schedule 919876543210 15m Hello from ShubDeep Labs"
+  -> "#scheduled" (or "show scheduled messages" to view active queue)
+  -> "cancel scheduled message to Ayan" (or "#cancel-schedule <id>")
+  * Action: The bot persists the message in `data/scheduled_messages.json`, runs an automated timer engine, delivers the message automatically at the scheduled time, and sends you a delivery confirmation in self-chat!
+
+
 
 --------------------------------------------------------------------------------
 2. 💬 CUSTOMER TEST PHRASES (TEST EVERY BOT FEATURE)

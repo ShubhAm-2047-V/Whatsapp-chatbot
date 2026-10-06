@@ -12,6 +12,14 @@ You can type these commands directly in WhatsApp:
 | **`#stats`** or **`#leads`** | 📊 View Statistics | Sends an instant count of total active chats, business inquiries, and hot leads. |
 | **`#pause`** | ⏸️ Pause AI Bot | Pauses the AI bot for that specific client chat so you can talk directly. |
 | **`#resume`** | ▶️ Resume AI Bot | Re-activates the AI bot for that chat. |
+| **`#scheduled`** | ⏰ View Scheduled Messages | Lists all pending scheduled messages in the queue. |
+| **`Send to <Name> after 10 min: <Msg>`** | ⏳ Schedule Message | Automatically schedules a message to a client after X mins or at date/time. |
+| **`#schedule <Phone> <Time> <Msg>`** | 🚀 Fast Schedule | Fast format (e.g. `#schedule 919876543210 15m Hello`). |
+| **`cancel scheduled message to <Name>`** | 🗑️ Cancel Schedule | Cancels a pending scheduled message. |
+| **`Send company pdf to <Name>`** or **`Generate our company pdf and send that to <Name>`** | 📄 Generate & Send Proposal PDF | Automatically renders branded proposal PDF with recipient's name and sends to their WhatsApp. |
+| **`Generate company pdf`** | 📄 Get Proposal PDF in Self-Chat | Generates and sends the official company proposal PDF directly to your own self-chat. |
+| **`Delete that message sent to <Name>`** or **`unsend message to <Name>`** | 🗑️ Unsend / Delete Message | Revokes and deletes sent WhatsApp message for everyone & cleans chat record. |
+| **`Wipe client data of <Name>`** | ⚠️ Delete CRM Lead | Permanently wipes customer records/leads from CRM database. |
 | **`#help`** or **`#commands`** | 🛠️ Command Cheat Sheet | Displays this quick menu directly in your WhatsApp. |
 
 ---
